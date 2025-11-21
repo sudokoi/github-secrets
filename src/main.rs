@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
     for result in &all_results {
         repo_results
             .entry(result.repository.clone())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(result);
     }
 
@@ -211,7 +211,7 @@ async fn main() -> Result<()> {
                 println!(
                     "  {} {} {} {}",
                     "✗".red(),
-                    format!("{}", result.secret_name).bright_red(),
+                    result.secret_name.bright_red(),
                     format!("in {}", result.repository).red(),
                     format!(
                         "→ {}",

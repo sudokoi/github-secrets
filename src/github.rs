@@ -155,10 +155,10 @@ impl GitHubClient {
                             "GitHub API error (status {}): {}",
                             source.status_code, source.message
                         );
-                        if let Some(errs) = &source.errors {
-                            if !errs.is_empty() {
-                                msg.push_str(&format!(" Details: {:?}", errs));
-                            }
+                        if let Some(errs) = &source.errors
+                            && !errs.is_empty()
+                        {
+                            msg.push_str(&format!(" Details: {:?}", errs));
                         }
                         if let Some(doc_url) = &source.documentation_url {
                             msg.push_str(&format!(" Documentation: {}", doc_url));

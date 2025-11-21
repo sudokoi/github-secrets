@@ -67,7 +67,7 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
         }
 
         secrets.push(SecretPair { key, value });
-        println!("{}", format!("✓ Secret pair added.\n").green());
+        println!("{}", "✓ Secret pair added.\n".green());
     }
 
     Ok(secrets)
