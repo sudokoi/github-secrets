@@ -1,8 +1,16 @@
 use chrono::{DateTime, Utc};
 use colored::*;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use crossterm::terminal;
-use dialoguer::MultiSelect;
+use crossterm::execute;
+use crossterm::terminal::{self, Clear, ClearType};
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Alignment, Constraint, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
+    Frame, Terminal,
+};
 use std::io::{self, Write};
 
 #[derive(Clone)]
@@ -12,65 +20,383 @@ pub struct SecretPair {
 }
 
 pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
-    let mut secrets = Vec::new();
+    // Setup terminal
+    terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
+    // Clear the terminal before showing TUI
+    execute!(stdout, Clear(ClearType::All))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    println!(
-        "{}",
-        "Enter secret key-value pairs. Press ESC to finish.".cyan()
-    );
-    println!(
-        "{}",
-        "(Note: ESC key detection requires terminal raw mode)\n".bright_black()
-    );
+    let mut secrets = Vec::new();
+    let mut current_key = String::new();
+    let mut current_value = String::new();
+    let mut input_mode = InputMode::Key; // Start with key input
+    let mut message = String::new();
+    let mut message_color = Color::Yellow;
 
     loop {
-        // Prompt for key
-        print!("Secret key (or ESC to finish): ");
-        stdout.flush()?;
+        terminal.draw(|frame| {
+            render_secret_input_ui(
+                frame,
+                &secrets,
+                &current_key,
+                &current_value,
+                &input_mode,
+                &message,
+                message_color,
+            );
+        })?;
 
-        let key = read_input_with_esc()?;
-
-        if key.is_none() {
-            // ESC was pressed, ask for confirmation
-            if confirm_exit()? {
-                break;
-            } else {
-                continue;
+        // Handle input
+        if let Event::Key(key) = event::read()? {
+            // Check for Ctrl+C - exit immediately
+            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                terminal::disable_raw_mode()?;
+                std::process::exit(0);
+            }
+            
+            match input_mode {
+                InputMode::Key => {
+                    match key.code {
+                        KeyCode::Enter => {
+                            if current_key.trim().is_empty() {
+                                message = "⚠️  Key cannot be empty".to_string();
+                                message_color = Color::Yellow;
+                            } else {
+                                input_mode = InputMode::Value;
+                                message.clear();
+                            }
+                        }
+                        KeyCode::Esc => {
+                            if !current_key.is_empty() || !secrets.is_empty() {
+                                // Ask for confirmation
+                                if confirm_exit_ratatui(&mut terminal)? {
+                                    break;
+                                }
+                            } else {
+                                break;
+                            }
+                        }
+                        KeyCode::Char(c) => {
+                            current_key.push(c);
+                            message.clear();
+                        }
+                        KeyCode::Backspace => {
+                            current_key.pop();
+                            message.clear();
+                        }
+                        _ => {}
+                    }
+                }
+                InputMode::Value => {
+                    match key.code {
+                        KeyCode::Enter => {
+                            if current_value.trim().is_empty() {
+                                message = "⚠️  Value cannot be empty".to_string();
+                                message_color = Color::Yellow;
+                            } else {
+                                // Check for duplicate key
+                                let key_to_add = current_key.clone();
+                                let was_duplicate = secrets.iter().any(|s| s.key == key_to_add);
+                                
+                                // Remove existing entry with same key (if any)
+                                secrets.retain(|s| s.key != key_to_add);
+                                
+                                // Add new secret pair
+                                secrets.push(SecretPair {
+                                    key: current_key.clone(),
+                                    value: current_value.clone(),
+                                });
+                                
+                                // Set appropriate message
+                                if was_duplicate {
+                                    message = format!("✓ Secret '{}' updated", key_to_add);
+                                } else {
+                                    message = format!("✓ Secret '{}' added", key_to_add);
+                                }
+                                message_color = Color::Green;
+                                current_key.clear();
+                                current_value.clear();
+                                input_mode = InputMode::Key;
+                            }
+                        }
+                        KeyCode::Esc => {
+                            // Go back to key input
+                            current_value.clear();
+                            input_mode = InputMode::Key;
+                            message.clear();
+                        }
+                        KeyCode::Char(c) => {
+                            current_value.push(c);
+                            message.clear();
+                        }
+                        KeyCode::Backspace => {
+                            current_value.pop();
+                            message.clear();
+                        }
+                        _ => {}
+                    }
+                }
             }
         }
-
-        let key = key.unwrap();
-        if key.trim().is_empty() {
-            println!("{}", "⚠️  Key cannot be empty. Skipping...\n".yellow());
-            continue;
-        }
-
-        print!("{}", "Secret value: ".cyan());
-        stdout.flush()?;
-
-        let value = read_input_with_esc()?;
-
-        if value.is_none() {
-            if confirm_exit()? {
-                break;
-            } else {
-                println!("{}", "⚠️  Discarding incomplete secret pair.\n".yellow());
-                continue;
-            }
-        }
-
-        let value = value.unwrap();
-        if value.trim().is_empty() {
-            println!("{}", "⚠️  Value cannot be empty. Skipping...\n".yellow());
-            continue;
-        }
-
-        secrets.push(SecretPair { key, value });
-        println!("{}", "✓ Secret pair added.\n".green());
     }
 
+    // Restore terminal
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
     Ok(secrets)
+}
+
+enum InputMode {
+    Key,
+    Value,
+}
+
+/// Render the secret input UI using ratatui.
+fn render_secret_input_ui(
+    f: &mut Frame,
+    secrets: &[SecretPair],
+    current_key: &str,
+    current_value: &str,
+    input_mode: &InputMode,
+    message: &str,
+    message_color: Color,
+) {
+    let size = f.size();
+
+    // Calculate minimum required height for input field (must always be visible)
+    // Single input field (3 lines) + message (1 line) = 4 lines minimum
+    let min_input_height = 4;
+    let header_height = if size.height < 8 { 1 } else { 3 };
+    let instructions_height = if size.height < 8 { 1 } else { 3 };
+    let fixed_height = header_height + min_input_height + instructions_height;
+    
+    // Calculate available space for secrets list (only if terminal is tall enough)
+    let available_for_list = if size.height > fixed_height {
+        size.height.saturating_sub(fixed_height)
+    } else {
+        0 // No space for list if terminal is too small
+    };
+    
+    // Create layout - prioritize input area visibility
+    // Use Length constraints for fixed elements to guarantee they're always visible
+    let chunks = if available_for_list > 0 {
+        // Terminal has enough space - show everything
+        Layout::default()
+            .constraints([
+                Constraint::Length(header_height), // Header
+                Constraint::Max(available_for_list), // Secrets list (remaining space)
+                Constraint::Length(min_input_height), // Input area (always 4 lines: 3 for input + 1 for message)
+                Constraint::Length(instructions_height), // Instructions
+            ])
+            .split(size)
+    } else {
+        // Terminal too small - show only essential elements (input field)
+        Layout::default()
+            .constraints([
+                Constraint::Length(header_height), // Minimal header
+                Constraint::Length(min_input_height), // Input area (always 4 lines - guaranteed)
+                Constraint::Length(instructions_height), // Minimal instructions
+            ])
+            .split(size)
+    };
+
+    let is_small_terminal = size.height < 11;
+    
+    // Header
+    if is_small_terminal {
+        let header = Paragraph::new("GitHub Secrets (ESC: finish)")
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Center);
+        f.render_widget(header, chunks[0]);
+    } else {
+        let secret_count = secrets.len();
+        let header_text = if secret_count == 0 {
+            "Enter secret key-value pairs. Press ESC to finish.".to_string()
+        } else {
+            format!("Enter secret key-value pairs ({} added). Press ESC to finish.", secret_count)
+        };
+        let header = Paragraph::new(header_text)
+            .block(Block::default().borders(Borders::ALL).title("GitHub Secrets"))
+            .style(Style::default().fg(Color::Cyan))
+            .alignment(Alignment::Center);
+        f.render_widget(header, chunks[0]);
+    }
+
+    // Secrets list (only if we have space and terminal is tall enough)
+    let list_chunk_idx = if available_for_list > 0 { 1 } else { usize::MAX }; // Use MAX to indicate no list
+    if available_for_list > 0 {
+        let mut items = Vec::new();
+        for (idx, secret) in secrets.iter().enumerate() {
+            let item_text = format!("{}. {} = {}", idx + 1, secret.key, "•".repeat(secret.value.len()));
+            items.push(ListItem::new(Span::styled(
+                item_text,
+                Style::default().fg(Color::Green),
+            )));
+        }
+        if items.is_empty() {
+            items.push(ListItem::new(Span::styled(
+                "No secrets added yet",
+                Style::default().fg(Color::DarkGray),
+            )));
+        }
+
+        let list_title = if secrets.is_empty() {
+            "Added Secrets".to_string()
+        } else {
+            format!("Added Secrets ({})", secrets.len())
+        };
+        let list = List::new(items)
+            .block(Block::default().borders(Borders::ALL).title(list_title))
+            .style(Style::default().fg(Color::White));
+        f.render_widget(list, chunks[list_chunk_idx]);
+    }
+
+    // Input area - single field that switches between key and value
+    // Input area chunk index depends on whether we're showing the secrets list
+    let input_area_chunk_idx = if available_for_list > 0 { 2 } else { 1 };
+    let input_chunks = Layout::default()
+        .constraints([
+            Constraint::Length(3), // Input field (always 3 lines - guaranteed visible)
+            Constraint::Length(1), // Message (always 1 line)
+        ])
+        .split(chunks[input_area_chunk_idx]);
+
+    // Show either key or value input based on mode
+    match input_mode {
+        InputMode::Key => {
+            // Key input with border and cursor
+            let key_label = Span::styled(
+                "Secret key: ",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            );
+            let key_cursor = "│";
+            let key_block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title("Enter Secret Key");
+            f.render_widget(
+                Paragraph::new(Line::from(vec![key_label, Span::raw(current_key), Span::raw(key_cursor)]))
+                    .block(key_block),
+                input_chunks[0],
+            );
+        }
+        InputMode::Value => {
+            // Value input with border and cursor
+            let value_label = Span::styled(
+                "Secret value: ",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            );
+            let masked_value = "•".repeat(current_value.len());
+            let value_cursor = "│";
+            let value_block = Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Cyan))
+                .title("Enter Secret Value");
+            f.render_widget(
+                Paragraph::new(Line::from(vec![value_label, Span::raw(masked_value), Span::raw(value_cursor)]))
+                    .block(value_block),
+                input_chunks[0],
+            );
+        }
+    }
+
+    // Message
+    f.render_widget(
+        Paragraph::new(if message.is_empty() { " " } else { message })
+            .style(Style::default().fg(message_color))
+            .alignment(Alignment::Center),
+        input_chunks[1],
+    );
+
+    // Instructions with mode-specific hints
+    let instructions_chunk_idx = if available_for_list > 0 { 3 } else { 2 };
+    let instruction_text = if is_small_terminal {
+        match input_mode {
+            InputMode::Key => "Enter: next → value | ESC: finish",
+            InputMode::Value => "Enter: add secret | ESC: back to key",
+        }
+    } else {
+        match input_mode {
+            InputMode::Key => "Enter: confirm key → value input | ESC: finish/cancel",
+            InputMode::Value => "Enter: add secret | ESC: back to key | Backspace: delete",
+        }
+    };
+    let instructions = if is_small_terminal {
+        Paragraph::new(instruction_text)
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+    } else {
+        Paragraph::new(instruction_text)
+            .block(Block::default().borders(Borders::ALL).title("Instructions"))
+            .style(Style::default().fg(Color::DarkGray))
+            .alignment(Alignment::Center)
+    };
+    f.render_widget(instructions, chunks[instructions_chunk_idx]);
+}
+
+/// Confirm exit using ratatui.
+fn confirm_exit_ratatui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<bool> {
+    let mut cursor_pos = 0; // 0 = Yes, 1 = No
+
+    loop {
+        terminal.draw(|frame| {
+            let size = frame.size();
+            let chunks = Layout::default()
+                .constraints([Constraint::Length(3), Constraint::Length(1)])
+                .split(size);
+
+            let options = vec!["Yes", "No"];
+            let mut items = Vec::new();
+            for (i, opt) in options.iter().enumerate() {
+                let prefix = if cursor_pos == i { "> " } else { "  " };
+                let style = if cursor_pos == i {
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                items.push(ListItem::new(Span::styled(format!("{}{}", prefix, opt), style)));
+            }
+
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title("Finish entering secrets? (y/N)"))
+                .style(Style::default().fg(Color::Yellow));
+            frame.render_widget(list, chunks[0]);
+        })?;
+
+        if let Event::Key(key) = event::read()? {
+            // Check for Ctrl+C - exit immediately
+            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                terminal::disable_raw_mode()?;
+                std::process::exit(0);
+            }
+            
+            match key.code {
+                KeyCode::Left | KeyCode::Up => {
+                    if cursor_pos > 0 {
+                        cursor_pos -= 1;
+                    }
+                }
+                KeyCode::Right | KeyCode::Down => {
+                    if cursor_pos < 1 {
+                        cursor_pos += 1;
+                    }
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if cursor_pos == 0 => {
+                    return Ok(true);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter => {
+                    return Ok(false);
+                }
+                KeyCode::Esc => {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 /// Read a single character from stdin without requiring Enter.
@@ -111,68 +437,6 @@ fn read_single_char() -> anyhow::Result<char> {
     result
 }
 
-/// Read user input with ESC key detection for early exit.
-/// Returns None if ESC was pressed, Some(input) if Enter was pressed.
-fn read_input_with_esc() -> anyhow::Result<Option<String>> {
-    terminal::enable_raw_mode()?;
-    let mut input = String::new();
-
-    let result = loop {
-        match event::read()? {
-            Event::Key(KeyEvent {
-                code: KeyCode::Esc,
-                kind: KeyEventKind::Press,
-                ..
-            }) => {
-                break Ok(None);
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Enter,
-                kind: KeyEventKind::Press,
-                ..
-            }) => {
-                break Ok(Some(input));
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Char(c),
-                kind: KeyEventKind::Press,
-                modifiers: KeyModifiers::NONE | KeyModifiers::SHIFT,
-                ..
-            }) => {
-                print!("{}", c);
-                io::stdout().flush()?;
-                input.push(c);
-            }
-            Event::Key(KeyEvent {
-                code: KeyCode::Backspace,
-                kind: KeyEventKind::Press,
-                ..
-            }) => {
-                if !input.is_empty() {
-                    input.pop();
-                    print!("\x08 \x08");
-                    io::stdout().flush()?;
-                }
-            }
-            _ => {}
-        }
-    };
-
-    terminal::disable_raw_mode()?;
-    println!();
-
-    result
-}
-
-fn confirm_exit() -> anyhow::Result<bool> {
-    print!("\n{}", "Finish entering secrets? (y/N): ".yellow());
-    io::stdout().flush()?;
-
-    let response = read_single_char()?;
-    println!(); // New line after input
-
-    Ok(response == 'y' || response == 'Y')
-}
 
 /// Format ISO 8601 date string to human-readable format.
 fn format_date(date_str: &str) -> String {
@@ -246,31 +510,95 @@ pub fn select_repositories(
         return Ok(vec![0]);
     }
 
-    println!(
-        "{}",
-        "Select repositories to update secrets for (use Space to select, Enter to confirm):\n"
-            .cyan()
-    );
+    // Setup terminal
+    terminal::enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    // Clear the terminal before showing TUI
+    execute!(stdout, Clear(ClearType::All))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
 
-    let mut items: Vec<String> = repositories.iter().map(|r| r.display_name()).collect();
+    // State: index 0 is "Select All", indices 1.. are repositories
+    let mut selected = vec![false; repositories.len() + 1];
+    let mut list_state = ListState::default();
+    list_state.select(Some(0)); // Start with "Select All" selected
 
-    items.insert(0, "Select All".to_string());
+    loop {
+        terminal.draw(|frame| {
+            render_selection_ui(frame, repositories, &selected, &mut list_state);
+        })?;
 
-    let selections = MultiSelect::new()
-        .with_prompt("Repositories")
-        .items(&items)
-        .defaults(&vec![false; items.len()])
-        .interact()
-        .map_err(|e| anyhow::anyhow!("Failed to select repositories: {}", e))?;
+        // Handle input
+        if let Event::Key(key) = event::read()? {
+            // Check for Ctrl+C - exit immediately
+            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                terminal::disable_raw_mode()?;
+                std::process::exit(0);
+            }
+            
+            match key.code {
+                KeyCode::Up => {
+                    if let Some(selected_idx) = list_state.selected() {
+                        if selected_idx > 0 {
+                            list_state.select(Some(selected_idx - 1));
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    if let Some(selected_idx) = list_state.selected() {
+                        if selected_idx < repositories.len() {
+                            list_state.select(Some(selected_idx + 1));
+                        }
+                    }
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(cursor_pos) = list_state.selected() {
+                        if cursor_pos == 0 {
+                            // Toggle "Select All"
+                            let all_selected = selected[1..].iter().all(|&s| s);
+                            let new_state = !all_selected;
+                            // Set all repository selections to match "Select All"
+                            for i in 1..selected.len() {
+                                selected[i] = new_state;
+                            }
+                            selected[0] = new_state;
+                        } else {
+                            // Toggle individual repository
+                            selected[cursor_pos] = !selected[cursor_pos];
+                            // Update "Select All" state based on all repositories
+                            let all_selected = selected[1..].iter().all(|&s| s);
+                            selected[0] = all_selected;
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    break;
+                }
+                KeyCode::Esc => {
+                    terminal::disable_raw_mode()?;
+                    anyhow::bail!("Selection cancelled");
+                }
+                _ => {}
+            }
+        }
+    }
 
-    if selections.is_empty() {
+    // Restore terminal
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
+    // Collect selected repository indices (excluding "Select All" at index 0)
+    let selected_indices: Vec<usize> = (1..selected.len())
+        .filter(|&i| selected[i])
+        .map(|i| i - 1)
+        .collect();
+
+    if selected_indices.is_empty() {
         anyhow::bail!("No repositories selected");
     }
 
-    let selected_indices: Vec<usize>;
-
-    if selections.contains(&0) {
-        selected_indices = (1..items.len()).collect();
+    // Display selection summary
+    if selected[0] || selected_indices.len() == repositories.len() {
         println!(
             "\n{} {} {}:\n",
             "✓".green(),
@@ -281,16 +609,10 @@ pub fn select_repositories(
             println!(
                 "  {} {}",
                 "•".green(),
-                repositories[idx - 1].display_name().bright_green()
+                repositories[idx].display_name().bright_green()
             );
         }
     } else {
-        selected_indices = selections
-            .into_iter()
-            .filter(|&i| i > 0)
-            .map(|i| i - 1)
-            .collect();
-
         println!(
             "\n{} {} {}:\n",
             "✓".green(),
@@ -312,4 +634,81 @@ pub fn select_repositories(
 
     println!();
     Ok(selected_indices)
+}
+
+/// Render the selection UI using ratatui.
+fn render_selection_ui(
+    f: &mut Frame,
+    repositories: &[crate::config::Repository],
+    selected: &[bool],
+    list_state: &mut ListState,
+) {
+    let size = f.size();
+
+    // Create layout - ensure instructions are always visible
+    let min_list_height = 3;
+    let instructions_height = 3;
+    let available_for_list = size.height.saturating_sub(instructions_height);
+    
+    let chunks = Layout::default()
+        .constraints([
+            Constraint::Max(available_for_list.max(min_list_height)), // List (max available, min 3)
+            Constraint::Length(instructions_height), // Instructions (always visible)
+        ])
+        .split(size);
+
+    // Build list items
+    let mut items = Vec::new();
+
+    // "Select All" item
+    let checkbox = if selected[0] { "[x]" } else { "[ ]" };
+    let select_all_text = format!("{} Select All", checkbox);
+    items.push(ListItem::new(select_all_text));
+
+    // Repository items
+    for (i, repo) in repositories.iter().enumerate() {
+        let idx = i + 1;
+        let checkbox = if selected[idx] { "[x]" } else { "[ ]" };
+        let repo_text = format!("{} {}", checkbox, repo.display_name());
+        items.push(ListItem::new(repo_text));
+    }
+
+    // Count selected repositories
+    let selected_count: usize = selected[1..].iter().map(|&s| s as usize).sum();
+    let total_count = repositories.len();
+    let list_title = if selected_count == total_count && selected[0] {
+        format!("Repositories (All {} selected)", total_count)
+    } else if selected_count > 0 {
+        format!("Repositories ({} of {} selected)", selected_count, total_count)
+    } else {
+        "Repositories".to_string()
+    };
+
+    // Create and render list
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(list_title),
+        )
+        .highlight_style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("> ");
+
+    f.render_stateful_widget(list, chunks[0], &mut *list_state);
+
+    // Instructions with selection status
+    let instruction_text = if selected_count > 0 {
+        format!("↑/↓: navigate | Space: toggle | Enter: confirm ({} selected)", selected_count)
+    } else {
+        "↑/↓: navigate | Space: toggle | Enter: confirm".to_string()
+    };
+    let instructions = Paragraph::new(instruction_text)
+        .block(Block::default().borders(Borders::ALL).title("Instructions"))
+        .style(Style::default().fg(Color::DarkGray))
+        .alignment(Alignment::Center);
+    f.render_widget(instructions, chunks[1]);
 }
