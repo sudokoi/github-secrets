@@ -1,7 +1,7 @@
-mod config;
-mod github;
-mod paths;
-mod prompt;
+pub mod config;
+pub mod github;
+pub mod paths;
+pub mod prompt;
 
 use anyhow::{Context, Result};
 use colored::*;

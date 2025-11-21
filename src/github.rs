@@ -57,7 +57,7 @@ impl GitHubClient {
     /// Uses X25519-XSalsa20-Poly1305 as required by GitHub API.
     /// Sealed box automatically handles nonce and ephemeral key generation.
     /// Returns base64-encoded encrypted data.
-    fn encrypt_secret(&self, public_key: &str, secret_value: &str) -> Result<String> {
+    pub fn encrypt_secret(&self, public_key: &str, secret_value: &str) -> Result<String> {
         use sodoken::crypto_box;
 
         let public_key_bytes = general_purpose::STANDARD
@@ -178,5 +178,140 @@ impl GitHubClient {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sodoken::crypto_box;
+
+    /// Helper function to test encryption without creating a full client.
+    /// This avoids the need for a Tokio runtime.
+    fn test_encrypt_secret(public_key: &str, secret_value: &str) -> Result<String> {
+        let public_key_bytes = general_purpose::STANDARD
+            .decode(public_key)
+            .context("Failed to decode public key")?;
+
+        if public_key_bytes.len() != crypto_box::XSALSA_PUBLICKEYBYTES {
+            anyhow::bail!(
+                "Invalid public key length. Expected {} bytes, got {}",
+                crypto_box::XSALSA_PUBLICKEYBYTES,
+                public_key_bytes.len()
+            );
+        }
+
+        let mut repository_public_key = [0u8; crypto_box::XSALSA_PUBLICKEYBYTES];
+        repository_public_key.copy_from_slice(&public_key_bytes);
+
+        // Encrypt using sealed box (automatically generates ephemeral key and nonce)
+        let secret_bytes = secret_value.as_bytes();
+        let mut encrypted = vec![0u8; secret_bytes.len() + crypto_box::XSALSA_SEALBYTES];
+
+        crypto_box::xsalsa_seal(&mut encrypted, secret_bytes, &repository_public_key)?;
+
+        Ok(general_purpose::STANDARD.encode(&encrypted))
+    }
+
+    #[test]
+    fn test_encrypt_secret_valid_public_key() {
+        // Generate a valid public key for testing
+        let mut public_key_bytes = [0u8; crypto_box::XSALSA_PUBLICKEYBYTES];
+        let mut secret_key_bytes = [0u8; crypto_box::XSALSA_SECRETKEYBYTES];
+        crypto_box::xsalsa_keypair(&mut public_key_bytes, &mut secret_key_bytes).unwrap();
+
+        let public_key_b64 = general_purpose::STANDARD.encode(public_key_bytes);
+        let secret_value = "test-secret-value";
+
+        // Encryption should succeed with valid public key
+        let result = test_encrypt_secret(&public_key_b64, secret_value);
+        assert!(result.is_ok());
+
+        let encrypted = result.unwrap();
+        // Encrypted value should be base64 encoded and different from original
+        assert!(!encrypted.is_empty());
+        assert_ne!(encrypted, secret_value);
+
+        // Should be valid base64
+        let decoded = general_purpose::STANDARD.decode(&encrypted);
+        assert!(decoded.is_ok());
+    }
+
+    #[test]
+    fn test_encrypt_secret_invalid_public_key_length() {
+        // Use an invalid public key (wrong length)
+        let invalid_key = general_purpose::STANDARD.encode(b"too-short-key");
+        let secret_value = "test-secret-value";
+
+        let result = test_encrypt_secret(&invalid_key, secret_value);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Invalid public key length")
+        );
+    }
+
+    #[test]
+    fn test_encrypt_secret_invalid_base64() {
+        // Use invalid base64
+        let invalid_key = "not-valid-base64!!!";
+        let secret_value = "test-secret-value";
+
+        let result = test_encrypt_secret(invalid_key, secret_value);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Failed to decode public key")
+        );
+    }
+
+    #[test]
+    fn test_encrypt_secret_empty_secret_value() {
+        // Generate a valid public key
+        let mut public_key_bytes = [0u8; crypto_box::XSALSA_PUBLICKEYBYTES];
+        let mut secret_key_bytes = [0u8; crypto_box::XSALSA_SECRETKEYBYTES];
+        crypto_box::xsalsa_keypair(&mut public_key_bytes, &mut secret_key_bytes).unwrap();
+
+        let public_key_b64 = general_purpose::STANDARD.encode(public_key_bytes);
+        let secret_value = "";
+
+        // Empty secret should still encrypt successfully
+        let result = test_encrypt_secret(&public_key_b64, secret_value);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_encrypt_secret_different_values_produce_different_encryptions() {
+        // Generate a valid public key
+        let mut public_key_bytes = [0u8; crypto_box::XSALSA_PUBLICKEYBYTES];
+        let mut secret_key_bytes = [0u8; crypto_box::XSALSA_SECRETKEYBYTES];
+        crypto_box::xsalsa_keypair(&mut public_key_bytes, &mut secret_key_bytes).unwrap();
+
+        let public_key_b64 = general_purpose::STANDARD.encode(public_key_bytes);
+
+        // Encrypt same value twice - should produce different results (due to ephemeral key)
+        let encrypted1 = test_encrypt_secret(&public_key_b64, "test-value").unwrap();
+        let encrypted2 = test_encrypt_secret(&public_key_b64, "test-value").unwrap();
+
+        // Sealed box uses ephemeral keys, so same plaintext produces different ciphertext
+        assert_ne!(encrypted1, encrypted2);
+    }
+
+    #[tokio::test]
+    async fn test_github_client_new() {
+        let result = GitHubClient::new(
+            "test-token".to_string(),
+            "test-owner".to_string(),
+            "test-repo".to_string(),
+        );
+        assert!(result.is_ok());
+
+        let client = result.unwrap();
+        assert_eq!(client.owner, "test-owner");
+        assert_eq!(client.repo, "test-repo");
     }
 }

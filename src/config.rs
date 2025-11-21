@@ -65,3 +65,150 @@ impl Config {
         &self.repositories
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_repository_path() {
+        let repo = Repository {
+            owner: "test-owner".to_string(),
+            name: "test-repo".to_string(),
+            alias: None,
+        };
+        assert_eq!(repo.path(), "test-owner/test-repo");
+    }
+
+    #[test]
+    fn test_repository_display_name_without_alias() {
+        let repo = Repository {
+            owner: "test-owner".to_string(),
+            name: "test-repo".to_string(),
+            alias: None,
+        };
+        assert_eq!(repo.display_name(), "test-owner/test-repo");
+    }
+
+    #[test]
+    fn test_repository_display_name_with_alias() {
+        let repo = Repository {
+            owner: "test-owner".to_string(),
+            name: "test-repo".to_string(),
+            alias: Some("My Repo".to_string()),
+        };
+        assert_eq!(repo.display_name(), "My Repo (test-owner/test-repo)");
+    }
+
+    #[test]
+    fn test_config_from_file_with_repositories_list() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let config_content = r#"
+[[repositories]]
+owner = "owner1"
+name = "repo1"
+
+[[repositories]]
+owner = "owner2"
+name = "repo2"
+alias = "Repo 2"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        let config = Config::from_file(config_path.to_str().unwrap()).unwrap();
+        assert_eq!(config.repositories.len(), 2);
+        assert_eq!(config.repositories[0].owner, "owner1");
+        assert_eq!(config.repositories[0].name, "repo1");
+        assert_eq!(config.repositories[1].owner, "owner2");
+        assert_eq!(config.repositories[1].name, "repo2");
+        assert_eq!(config.repositories[1].alias, Some("Repo 2".to_string()));
+    }
+
+    #[test]
+    fn test_config_from_file_with_single_repository() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let config_content = r#"
+[repository]
+owner = "owner1"
+name = "repo1"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        let config = Config::from_file(config_path.to_str().unwrap()).unwrap();
+        assert_eq!(config.repositories.len(), 1);
+        assert_eq!(config.repositories[0].owner, "owner1");
+        assert_eq!(config.repositories[0].name, "repo1");
+    }
+
+    #[test]
+    fn test_config_from_file_single_repository_ignored_when_repositories_exist() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let config_content = r#"
+[repository]
+owner = "owner1"
+name = "repo1"
+
+[[repositories]]
+owner = "owner2"
+name = "repo2"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        let config = Config::from_file(config_path.to_str().unwrap()).unwrap();
+        // Single repository should be ignored when repositories list exists
+        assert_eq!(config.repositories.len(), 1);
+        assert_eq!(config.repositories[0].owner, "owner2");
+        assert_eq!(config.repositories[0].name, "repo2");
+    }
+
+    #[test]
+    fn test_config_from_file_empty_repositories() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+
+        let config_content = r#"
+"#;
+        fs::write(&config_path, config_content).unwrap();
+
+        let result = Config::from_file(config_path.to_str().unwrap());
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("No repositories found")
+        );
+    }
+
+    #[test]
+    fn test_config_get_repositories() {
+        let config = Config {
+            repositories: vec![
+                Repository {
+                    owner: "owner1".to_string(),
+                    name: "repo1".to_string(),
+                    alias: None,
+                },
+                Repository {
+                    owner: "owner2".to_string(),
+                    name: "repo2".to_string(),
+                    alias: None,
+                },
+            ],
+            repository: None,
+        };
+
+        let repos = config.get_repositories();
+        assert_eq!(repos.len(), 2);
+        assert_eq!(repos[0].owner, "owner1");
+        assert_eq!(repos[1].owner, "owner2");
+    }
+}

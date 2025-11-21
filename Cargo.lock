@@ -733,6 +733,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sodoken",
+ "tempfile",
  "thiserror 1.0.69",
  "tokio",
  "toml",

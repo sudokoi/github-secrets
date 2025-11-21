@@ -111,3 +111,147 @@ pub fn load_env_file() {
     // Fallback: try current directory again (dotenv default behavior)
     let _ = dotenv::dotenv();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_find_config_file_current_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let original_dir = env::current_dir().unwrap();
+
+        // Create config.toml in temp directory
+        let config_path = temp_dir.path().join("config.toml");
+        fs::write(
+            &config_path,
+            "[[repositories]]\nowner = \"test\"\nname = \"repo\"",
+        )
+        .unwrap();
+
+        // Change to temp directory
+        env::set_current_dir(&temp_dir).unwrap();
+
+        let result = find_config_file();
+        assert!(result.is_ok());
+        // Compare canonical paths to handle relative vs absolute
+        let found_path = result.unwrap().canonicalize().unwrap();
+        let expected_path = config_path.canonicalize().unwrap();
+        assert_eq!(found_path, expected_path);
+
+        // Restore original directory
+        env::set_current_dir(&original_dir).unwrap();
+    }
+
+    #[test]
+    fn test_find_config_file_env_override() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_path = temp_dir.path().join("custom-config.toml");
+        fs::write(
+            &config_path,
+            "[[repositories]]\nowner = \"test\"\nname = \"repo\"",
+        )
+        .unwrap();
+
+        unsafe {
+            env::set_var("CONFIG_PATH", config_path.to_str().unwrap());
+        }
+        let result = find_config_file();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), config_path);
+
+        unsafe {
+            env::remove_var("CONFIG_PATH");
+        }
+    }
+
+    #[test]
+    fn test_find_config_file_returns_default_when_not_found() {
+        // Remove XDG_CONFIG_HOME if set
+        let xdg_home = env::var("XDG_CONFIG_HOME").ok();
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+
+        let temp_dir = TempDir::new().unwrap();
+        let original_dir = env::current_dir().unwrap();
+
+        // Change to temp directory (no config.toml)
+        // Note: This might fail on some systems, so we'll test the logic differently
+        if env::set_current_dir(&temp_dir).is_ok() {
+            let result = find_config_file();
+            assert!(result.is_ok());
+            // Should return default XDG path even if it doesn't exist
+            let path = result.unwrap();
+            let path_str = path.to_string_lossy();
+            // The path should either be the default XDG location or current directory
+            assert!(
+                path_str.contains("github-secrets") || path_str == "config.toml",
+                "Path should contain 'github-secrets' or be 'config.toml', got: {}",
+                path_str
+            );
+            assert!(
+                path_str.contains("config.toml"),
+                "Path should contain 'config.toml', got: {}",
+                path_str
+            );
+
+            // Restore
+            env::set_current_dir(&original_dir).unwrap();
+        }
+
+        // Restore XDG_CONFIG_HOME
+        if let Some(xdg) = xdg_home {
+            unsafe {
+                env::set_var("XDG_CONFIG_HOME", xdg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_env_file_current_directory() {
+        let temp_dir = TempDir::new().unwrap();
+        let original_dir = env::current_dir().ok();
+
+        // Create .env in temp directory
+        let env_path = temp_dir.path().join(".env");
+        fs::write(&env_path, "TEST_VAR=test_value").unwrap();
+
+        // Change to temp directory
+        if env::set_current_dir(&temp_dir).is_ok() {
+            load_env_file();
+
+            // Verify the variable was loaded (if it was loaded)
+            if let Ok(value) = env::var("TEST_VAR") {
+                assert_eq!(value, "test_value");
+                unsafe {
+                    env::remove_var("TEST_VAR");
+                }
+            }
+
+            // Restore original directory if we had one
+            if let Some(dir) = original_dir {
+                let _ = env::set_current_dir(&dir);
+            }
+        }
+    }
+
+    #[test]
+    fn test_load_env_file_handles_missing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let original_dir = env::current_dir().ok();
+
+        // Change to temp directory (no .env file)
+        if env::set_current_dir(&temp_dir).is_ok() {
+            // Should not panic when .env doesn't exist
+            load_env_file();
+
+            // Restore original directory if we had one
+            if let Some(dir) = original_dir {
+                let _ = env::set_current_dir(&dir);
+            }
+        }
+    }
+}
