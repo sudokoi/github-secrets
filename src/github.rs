@@ -1,3 +1,8 @@
+//! GitHub API client for managing repository secrets.
+//!
+//! This module provides functionality to interact with GitHub's Actions Secrets API,
+//! including encrypting secrets and updating them in repositories.
+
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose};
 use octocrab::Octocrab;
@@ -9,15 +14,18 @@ struct PublicKey {
     key: String,
 }
 
+/// Information about a GitHub repository secret.
 #[derive(Debug, Deserialize)]
 pub struct SecretInfo {
     #[serde(skip)]
     #[allow(dead_code)]
     name: String,
+    /// ISO 8601 timestamp of when the secret was last updated.
     #[serde(rename = "updated_at")]
     pub updated_at: Option<String>,
 }
 
+/// Client for interacting with GitHub's Actions Secrets API.
 pub struct GitHubClient {
     octocrab: Octocrab,
     owner: String,
@@ -25,6 +33,21 @@ pub struct GitHubClient {
 }
 
 impl GitHubClient {
+    /// Create a new GitHub client for a specific repository.
+    ///
+    /// # Arguments
+    ///
+    /// * `token` - GitHub personal access token
+    /// * `owner` - Repository owner (username or organization)
+    /// * `repo` - Repository name
+    ///
+    /// # Returns
+    ///
+    /// Returns a `GitHubClient` instance or an error if the client cannot be created.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the Octocrab client cannot be initialized.
     pub fn new(token: String, owner: String, repo: String) -> Result<Self> {
         let octocrab = Octocrab::builder()
             .personal_token(token)
@@ -86,11 +109,25 @@ impl GitHubClient {
 
     /// Retrieve information about a secret, including last update timestamp.
     /// Returns None if the secret doesn't exist.
+    /// Retrieve information about a secret, including last update timestamp.
+    ///
+    /// # Arguments
+    ///
+    /// * `secret_name` - The name of the secret to query
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(Some(SecretInfo))` if the secret exists, `Ok(None)` if it doesn't exist,
+    /// or an error if the API call fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the GitHub API request fails (other than 404 Not Found).
     pub async fn get_secret_info(&self, secret_name: &str) -> Result<Option<SecretInfo>> {
-        let path = format!(
-            "/repos/{}/{}/actions/secrets/{}",
-            self.owner, self.repo, secret_name
-        );
+        let path = crate::constants::api::SECRET_PATH_TEMPLATE
+            .replace("{owner}", &self.owner)
+            .replace("{repo}", &self.repo)
+            .replace("{secret_name}", secret_name);
 
         match self
             .octocrab
@@ -115,10 +152,10 @@ impl GitHubClient {
             key_id: String,
         }
 
-        let path = format!(
-            "/repos/{}/{}/actions/secrets/{}",
-            self.owner, self.repo, secret_name
-        );
+        let path = crate::constants::api::SECRET_PATH_TEMPLATE
+            .replace("{owner}", &self.owner)
+            .replace("{repo}", &self.repo)
+            .replace("{secret_name}", secret_name);
 
         let body = UpdateSecretRequest {
             encrypted_value,

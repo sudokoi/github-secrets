@@ -1,24 +1,52 @@
+//! Interactive terminal user interface (TUI) for secret management.
+//!
+//! This module provides a ratatui-based TUI for:
+//! - Entering secret key-value pairs interactively
+//! - Selecting repositories from a list
+//! - Confirming secret updates
+//! - Handling user input with proper terminal state management
+
 use chrono::{DateTime, Utc};
 use colored::*;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::{
+    Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-    Frame, Terminal,
 };
 use std::io::{self, Write};
 
+/// A key-value pair representing a GitHub secret.
 #[derive(Clone)]
 pub struct SecretPair {
+    /// The secret key/name.
     pub key: String,
+    /// The secret value.
     pub value: String,
 }
 
+/// Prompt the user to enter secret key-value pairs interactively.
+///
+/// This function displays a TUI where users can enter multiple secret pairs.
+/// The input switches between key and value entry modes. Users can press ESC
+/// to finish entering secrets.
+///
+/// # Returns
+///
+/// Returns a vector of `SecretPair` containing all entered secrets, or an error
+/// if the terminal setup fails or the user cancels the operation.
+///
+/// # Errors
+///
+/// This function will return an error if:
+/// - Terminal raw mode cannot be enabled
+/// - Terminal operations fail
+/// - The user presses Ctrl+C (exits immediately)
 pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
     // Setup terminal
     terminal::enable_raw_mode()?;
@@ -55,17 +83,20 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
                 terminal::disable_raw_mode()?;
                 std::process::exit(0);
             }
-            
+
             match input_mode {
                 InputMode::Key => {
                     match key.code {
                         KeyCode::Enter => {
-                            if current_key.trim().is_empty() {
-                                message = "⚠️  Key cannot be empty".to_string();
-                                message_color = Color::Yellow;
-                            } else {
-                                input_mode = InputMode::Value;
-                                message.clear();
+                            match crate::validation::validate_secret_key(&current_key) {
+                                Ok(()) => {
+                                    input_mode = InputMode::Value;
+                                    message.clear();
+                                }
+                                Err(e) => {
+                                    message = format!("⚠️  {}", e);
+                                    message_color = Color::Yellow;
+                                }
                             }
                         }
                         KeyCode::Esc => {
@@ -99,16 +130,16 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
                                 // Check for duplicate key
                                 let key_to_add = current_key.clone();
                                 let was_duplicate = secrets.iter().any(|s| s.key == key_to_add);
-                                
+
                                 // Remove existing entry with same key (if any)
                                 secrets.retain(|s| s.key != key_to_add);
-                                
+
                                 // Add new secret pair
                                 secrets.push(SecretPair {
                                     key: current_key.clone(),
                                     value: current_value.clone(),
                                 });
-                                
+
                                 // Set appropriate message
                                 if was_duplicate {
                                     message = format!("✓ Secret '{}' updated", key_to_add);
@@ -172,22 +203,22 @@ fn render_secret_input_ui(
     let header_height = if size.height < 8 { 1 } else { 3 };
     let instructions_height = if size.height < 8 { 1 } else { 3 };
     let fixed_height = header_height + min_input_height + instructions_height;
-    
+
     // Calculate available space for secrets list (only if terminal is tall enough)
     let available_for_list = if size.height > fixed_height {
         size.height.saturating_sub(fixed_height)
     } else {
         0 // No space for list if terminal is too small
     };
-    
+
     // Create layout - prioritize input area visibility
     // Use Length constraints for fixed elements to guarantee they're always visible
     let chunks = if available_for_list > 0 {
         // Terminal has enough space - show everything
         Layout::default()
             .constraints([
-                Constraint::Length(header_height), // Header
-                Constraint::Max(available_for_list), // Secrets list (remaining space)
+                Constraint::Length(header_height),       // Header
+                Constraint::Max(available_for_list),     // Secrets list (remaining space)
                 Constraint::Length(min_input_height), // Input area (always 4 lines: 3 for input + 1 for message)
                 Constraint::Length(instructions_height), // Instructions
             ])
@@ -196,15 +227,15 @@ fn render_secret_input_ui(
         // Terminal too small - show only essential elements (input field)
         Layout::default()
             .constraints([
-                Constraint::Length(header_height), // Minimal header
-                Constraint::Length(min_input_height), // Input area (always 4 lines - guaranteed)
+                Constraint::Length(header_height),       // Minimal header
+                Constraint::Length(min_input_height),    // Input area (always 4 lines - guaranteed)
                 Constraint::Length(instructions_height), // Minimal instructions
             ])
             .split(size)
     };
 
     let is_small_terminal = size.height < 11;
-    
+
     // Header
     if is_small_terminal {
         let header = Paragraph::new("GitHub Secrets (ESC: finish)")
@@ -216,21 +247,37 @@ fn render_secret_input_ui(
         let header_text = if secret_count == 0 {
             "Enter secret key-value pairs. Press ESC to finish.".to_string()
         } else {
-            format!("Enter secret key-value pairs ({} added). Press ESC to finish.", secret_count)
+            format!(
+                "Enter secret key-value pairs ({} added). Press ESC to finish.",
+                secret_count
+            )
         };
         let header = Paragraph::new(header_text)
-            .block(Block::default().borders(Borders::ALL).title("GitHub Secrets"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("GitHub Secrets"),
+            )
             .style(Style::default().fg(Color::Cyan))
             .alignment(Alignment::Center);
         f.render_widget(header, chunks[0]);
     }
 
     // Secrets list (only if we have space and terminal is tall enough)
-    let list_chunk_idx = if available_for_list > 0 { 1 } else { usize::MAX }; // Use MAX to indicate no list
+    let list_chunk_idx = if available_for_list > 0 {
+        1
+    } else {
+        usize::MAX
+    }; // Use MAX to indicate no list
     if available_for_list > 0 {
         let mut items = Vec::new();
         for (idx, secret) in secrets.iter().enumerate() {
-            let item_text = format!("{}. {} = {}", idx + 1, secret.key, "•".repeat(secret.value.len()));
+            let item_text = format!(
+                "{}. {} = {}",
+                idx + 1,
+                secret.key,
+                "•".repeat(secret.value.len())
+            );
             items.push(ListItem::new(Span::styled(
                 item_text,
                 Style::default().fg(Color::Green),
@@ -270,7 +317,9 @@ fn render_secret_input_ui(
             // Key input with border and cursor
             let key_label = Span::styled(
                 "Secret key: ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             );
             let key_cursor = "│";
             let key_block = Block::default()
@@ -278,8 +327,12 @@ fn render_secret_input_ui(
                 .border_style(Style::default().fg(Color::Cyan))
                 .title("Enter Secret Key");
             f.render_widget(
-                Paragraph::new(Line::from(vec![key_label, Span::raw(current_key), Span::raw(key_cursor)]))
-                    .block(key_block),
+                Paragraph::new(Line::from(vec![
+                    key_label,
+                    Span::raw(current_key),
+                    Span::raw(key_cursor),
+                ]))
+                .block(key_block),
                 input_chunks[0],
             );
         }
@@ -287,7 +340,9 @@ fn render_secret_input_ui(
             // Value input with border and cursor
             let value_label = Span::styled(
                 "Secret value: ",
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             );
             let masked_value = "•".repeat(current_value.len());
             let value_cursor = "│";
@@ -296,8 +351,12 @@ fn render_secret_input_ui(
                 .border_style(Style::default().fg(Color::Cyan))
                 .title("Enter Secret Value");
             f.render_widget(
-                Paragraph::new(Line::from(vec![value_label, Span::raw(masked_value), Span::raw(value_cursor)]))
-                    .block(value_block),
+                Paragraph::new(Line::from(vec![
+                    value_label,
+                    Span::raw(masked_value),
+                    Span::raw(value_cursor),
+                ]))
+                .block(value_block),
                 input_chunks[0],
             );
         }
@@ -338,7 +397,9 @@ fn render_secret_input_ui(
 }
 
 /// Confirm exit using ratatui.
-fn confirm_exit_ratatui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> anyhow::Result<bool> {
+fn confirm_exit_ratatui(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+) -> anyhow::Result<bool> {
     let mut cursor_pos = 0; // 0 = Yes, 1 = No
 
     loop {
@@ -348,20 +409,29 @@ fn confirm_exit_ratatui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
                 .constraints([Constraint::Length(3), Constraint::Length(1)])
                 .split(size);
 
-            let options = vec!["Yes", "No"];
+            let options = ["Yes", "No"];
             let mut items = Vec::new();
             for (i, opt) in options.iter().enumerate() {
                 let prefix = if cursor_pos == i { "> " } else { "  " };
                 let style = if cursor_pos == i {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(Color::White)
                 };
-                items.push(ListItem::new(Span::styled(format!("{}{}", prefix, opt), style)));
+                items.push(ListItem::new(Span::styled(
+                    format!("{}{}", prefix, opt),
+                    style,
+                )));
             }
 
             let list = List::new(items)
-                .block(Block::default().borders(Borders::ALL).title("Finish entering secrets? (y/N)"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Finish entering secrets? (y/N)"),
+                )
                 .style(Style::default().fg(Color::Yellow));
             frame.render_widget(list, chunks[0]);
         })?;
@@ -372,12 +442,10 @@ fn confirm_exit_ratatui(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -
                 terminal::disable_raw_mode()?;
                 std::process::exit(0);
             }
-            
+
             match key.code {
                 KeyCode::Left | KeyCode::Up => {
-                    if cursor_pos > 0 {
-                        cursor_pos -= 1;
-                    }
+                    cursor_pos = cursor_pos.saturating_sub(1);
                 }
                 KeyCode::Right | KeyCode::Down => {
                     if cursor_pos < 1 {
@@ -437,7 +505,6 @@ fn read_single_char() -> anyhow::Result<char> {
     result
 }
 
-
 /// Format ISO 8601 date string to human-readable format.
 fn format_date(date_str: &str) -> String {
     if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
@@ -458,6 +525,22 @@ fn format_date(date_str: &str) -> String {
     }
 }
 
+/// Confirm whether to update an existing secret.
+///
+/// Displays a confirmation prompt showing the secret name and when it was last updated.
+///
+/// # Arguments
+///
+/// * `secret_name` - The name of the secret to update
+/// * `last_updated` - Optional ISO 8601 timestamp of when the secret was last updated
+///
+/// # Returns
+///
+/// Returns `true` if the user confirms the update, `false` otherwise.
+///
+/// # Errors
+///
+/// Returns an error if terminal operations fail.
 pub fn confirm_secret_update(
     secret_name: &str,
     last_updated: Option<&str>,
@@ -498,6 +581,25 @@ pub fn confirm_retry() -> anyhow::Result<bool> {
 
 /// Present interactive menu for selecting one or more repositories.
 /// Returns vector of selected repository indices.
+/// Select repositories from a list using an interactive TUI.
+///
+/// Displays a TUI where users can select multiple repositories using spacebar
+/// to toggle selection and Enter to confirm. Includes a "Select All" option.
+///
+/// # Arguments
+///
+/// * `repositories` - A slice of repositories to choose from
+///
+/// # Returns
+///
+/// Returns a vector of indices representing the selected repositories.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Terminal setup fails
+/// - The user cancels the selection (ESC)
+/// - Terminal operations fail
 pub fn select_repositories(
     repositories: &[crate::config::Repository],
 ) -> anyhow::Result<Vec<usize>> {
@@ -535,13 +637,13 @@ pub fn select_repositories(
                 terminal::disable_raw_mode()?;
                 std::process::exit(0);
             }
-            
+
             match key.code {
                 KeyCode::Up => {
-                    if let Some(selected_idx) = list_state.selected() {
-                        if selected_idx > 0 {
-                            list_state.select(Some(selected_idx - 1));
-                        }
+                    if let Some(selected_idx) = list_state.selected()
+                        && selected_idx > 0
+                    {
+                        list_state.select(Some(selected_idx - 1));
                     }
                 }
                 KeyCode::Down => {
@@ -558,8 +660,8 @@ pub fn select_repositories(
                             let all_selected = selected[1..].iter().all(|&s| s);
                             let new_state = !all_selected;
                             // Set all repository selections to match "Select All"
-                            for i in 1..selected.len() {
-                                selected[i] = new_state;
+                            for selected_item in selected.iter_mut().skip(1) {
+                                *selected_item = new_state;
                             }
                             selected[0] = new_state;
                         } else {
@@ -649,7 +751,7 @@ fn render_selection_ui(
     let min_list_height = 3;
     let instructions_height = 3;
     let available_for_list = size.height.saturating_sub(instructions_height);
-    
+
     let chunks = Layout::default()
         .constraints([
             Constraint::Max(available_for_list.max(min_list_height)), // List (max available, min 3)
@@ -679,18 +781,17 @@ fn render_selection_ui(
     let list_title = if selected_count == total_count && selected[0] {
         format!("Repositories (All {} selected)", total_count)
     } else if selected_count > 0 {
-        format!("Repositories ({} of {} selected)", selected_count, total_count)
+        format!(
+            "Repositories ({} of {} selected)",
+            selected_count, total_count
+        )
     } else {
         "Repositories".to_string()
     };
 
     // Create and render list
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(list_title),
-        )
+        .block(Block::default().borders(Borders::ALL).title(list_title))
         .highlight_style(
             Style::default()
                 .fg(Color::Cyan)
@@ -702,7 +803,10 @@ fn render_selection_ui(
 
     // Instructions with selection status
     let instruction_text = if selected_count > 0 {
-        format!("↑/↓: navigate | Space: toggle | Enter: confirm ({} selected)", selected_count)
+        format!(
+            "↑/↓: navigate | Space: toggle | Enter: confirm ({} selected)",
+            selected_count
+        )
     } else {
         "↑/↓: navigate | Space: toggle | Enter: confirm".to_string()
     };

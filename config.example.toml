@@ -1,12 +1,43 @@
-# Repository configuration
-# Define multiple repositories to manage secrets across
+# GitHub Secrets Configuration File
+#
+# This file defines the repositories where secrets will be updated.
+# You can specify repositories in two ways:
+#
+# 1. Single repository format:
+# [repository]
+# owner = "your-username"
+# name = "your-repo"
+# alias = "My Repository"  # Optional: friendly name for display
+#
+# 2. Multiple repositories format:
+# [[repositories]]
+# owner = "org1"
+# name = "repo1"
+# alias = "Production"  # Optional
+#
+# [[repositories]]
+# owner = "org2"
+# name = "repo2"
+# # alias is optional
 
-[[repositories]]
-owner = "your_github_username"
-name = "your_repository_name"
-alias = "My Main Repo"  # Optional friendly name for display
+# Example: Single repository
+[repository]
+owner = "example-org"
+name = "example-repo"
+alias = "Example Repository"
 
-[[repositories]]
-owner = "your_github_username"
-name = "another_repository"
-alias = "Secondary Repo"  # Optional friendly name for display
+# Example: Multiple repositories (uncomment to use)
+# [[repositories]]
+# owner = "my-org"
+# name = "backend"
+# alias = "Backend Service"
+#
+# [[repositories]]
+# owner = "my-org"
+# name = "frontend"
+# alias = "Frontend App"
+#
+# [[repositories]]
+# owner = "my-org"
+# name = "api"
+# # No alias - will display as "my-org/api"

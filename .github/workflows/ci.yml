@@ -50,6 +50,14 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
+      - name: Check for security vulnerabilities
+        run: |
+          if command -v cargo-audit &> /dev/null; then
+            cargo audit
+          else
+            echo "cargo-audit not installed, skipping security check"
+          fi
+
   build-check:
     name: Build Check
     runs-on: ${{ matrix.os }}

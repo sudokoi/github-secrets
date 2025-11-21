@@ -2,6 +2,12 @@
 name = "github-secrets"
 version = "0.1.0"
 edition = "2024"
+authors = ["Sudhanshu Ranjan <perfectsudh@gmail.com>"]
+description = "A CLI tool to update GitHub repository secrets interactively"
+license = "MIT"
+repository = "https://github.com/sudokoi/github-secrets"
+keywords = ["github", "secrets", "cli", "automation"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -20,6 +26,7 @@ chrono = "0.4"
 octocrab = "0.48"
 colored = "2.1"
 dirs = "5.0"
+regex = "1.10"
 
 [dev-dependencies]
 tempfile = "3.10"

@@ -1,3 +1,8 @@
+//! Configuration file parsing and validation.
+//!
+//! This module handles loading and validating TOML configuration files
+//! that define GitHub repositories for secret management.
+
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::fs;
@@ -26,10 +31,22 @@ pub struct Repository {
 }
 
 impl Repository {
+    /// Get the repository path in the format "owner/repo".
+    ///
+    /// # Returns
+    ///
+    /// Returns a string in the format "{owner}/{name}".
     pub fn path(&self) -> String {
         format!("{}/{}", self.owner, self.name)
     }
 
+    /// Get the display name for the repository.
+    ///
+    /// If an alias is set, returns "{alias} ({owner}/{name})", otherwise returns "{owner}/{name}".
+    ///
+    /// # Returns
+    ///
+    /// Returns a formatted string suitable for display in UI.
     pub fn display_name(&self) -> String {
         if let Some(alias) = &self.alias {
             format!("{} ({})", alias, self.path())
@@ -58,9 +75,22 @@ impl Config {
             anyhow::bail!("No repositories found in config file");
         }
 
+        // Validate all repositories
+        for (idx, repo) in config.repositories.iter().enumerate() {
+            crate::validation::validate_repo_owner(&repo.owner)
+                .with_context(|| format!("Invalid owner in repository #{}", idx + 1))?;
+            crate::validation::validate_repo_name(&repo.name)
+                .with_context(|| format!("Invalid repository name in repository #{}", idx + 1))?;
+        }
+
         Ok(config)
     }
 
+    /// Get a reference to the list of repositories.
+    ///
+    /// # Returns
+    ///
+    /// Returns a slice of all configured repositories.
     pub fn get_repositories(&self) -> &[Repository] {
         &self.repositories
     }

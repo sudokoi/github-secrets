@@ -1,11 +1,16 @@
 pub mod config;
+pub mod constants;
+pub mod error;
 pub mod github;
 pub mod paths;
 pub mod prompt;
+pub mod rate_limit;
+pub mod validation;
 
 use anyhow::{Context, Result};
 use colored::*;
 use std::env;
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 struct UpdateResult {
@@ -20,8 +25,14 @@ async fn main() -> Result<()> {
     // Load .env file from XDG config directory or current directory
     paths::load_env_file();
 
-    let token = env::var("GITHUB_TOKEN")
+    let token_str = env::var("GITHUB_TOKEN")
         .context("GITHUB_TOKEN not found in environment. Please set it in .env file")?;
+    
+    // Validate token format
+    validation::validate_token(&token_str)
+        .context("Invalid GitHub token format")?;
+    
+    let token = Arc::new(token_str);
 
     // Find config file in XDG config directory or current directory
     let config_path = paths::find_config_file()?;
@@ -54,6 +65,9 @@ async fn main() -> Result<()> {
 
     let mut all_results = Vec::new();
     let mut all_failed_secrets: Vec<(usize, prompt::SecretPair)> = Vec::new();
+    
+    // Initialize rate limiter to respect GitHub API limits
+    let mut rate_limiter = rate_limit::RateLimiter::new();
 
     for &repo_index in &selected_indices {
         let selected_repo = &repositories[repo_index];
@@ -68,17 +82,22 @@ async fn main() -> Result<()> {
         println!("{}", "=".repeat(60).bright_black());
 
         let github_client = github::GitHubClient::new(
-            token.clone(),
+            token.as_ref().clone(),
             selected_repo.owner.clone(),
             selected_repo.name.clone(),
         )
         .context("Failed to initialize GitHub client")?;
 
         for secret in &secrets {
+            // Wait for rate limit before making API call
+            rate_limiter.wait_if_needed().await;
+            
             let secret_info = github_client
                 .get_secret_info(&secret.key)
                 .await
                 .context("Failed to check if secret exists")?;
+            
+            rate_limiter.release();
 
             if let Some(info) = &secret_info {
                 let last_updated = info.updated_at.as_deref();
@@ -100,10 +119,16 @@ async fn main() -> Result<()> {
                 }
             }
 
-            match github_client
+            // Wait for rate limit before making API call
+            rate_limiter.wait_if_needed().await;
+            
+            let update_result = github_client
                 .update_secret(&secret.key, &secret.value)
-                .await
-            {
+                .await;
+            
+            rate_limiter.release();
+            
+            match update_result {
                 Ok(()) => {
                     println!(
                         "{} {} {} {} {}",
@@ -122,13 +147,7 @@ async fn main() -> Result<()> {
                 }
                 Err(e) => {
                     // Extract detailed error message from error chain
-                    let mut error_chain = vec![format!("{}", e)];
-                    let mut current = e.source();
-                    while let Some(err) = current {
-                        error_chain.push(format!("{}", err));
-                        current = err.source();
-                    }
-                    let detailed_error = error_chain.join(" → ");
+                    let detailed_error = error::format_error_chain(&e);
 
                     println!(
                         "{} {} {} {} {}",
@@ -232,9 +251,12 @@ async fn main() -> Result<()> {
                 let repo = &repositories[*repo_index];
                 let repo_display = repo.display_name();
 
-                let github_client =
-                    github::GitHubClient::new(token.clone(), repo.owner.clone(), repo.name.clone())
-                        .context("Failed to initialize GitHub client")?;
+                let github_client = github::GitHubClient::new(
+                    token.as_ref().clone(),
+                    repo.owner.clone(),
+                    repo.name.clone(),
+                )
+                .context("Failed to initialize GitHub client")?;
 
                 match github_client
                     .update_secret(&secret.key, &secret.value)
@@ -259,13 +281,7 @@ async fn main() -> Result<()> {
                         }
                     }
                     Err(e) => {
-                        let mut error_chain = vec![format!("{}", e)];
-                        let mut current = e.source();
-                        while let Some(err) = current {
-                            error_chain.push(format!("{}", err));
-                            current = err.source();
-                        }
-                        let detailed_error = error_chain.join(" → ");
+                        let detailed_error = error::format_error_chain(&e);
 
                         println!(
                             "{} {} {} {} {} {}",
