@@ -214,7 +214,7 @@ mod tests {
 
             let found_path = result.unwrap();
 
-            // Critical check: ensure we found config.toml, not custom-config.toml from other tests
+            // Verify we found the correct file name
             let file_name = found_path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -288,7 +288,7 @@ mod tests {
         let original_config_path = env::var("CONFIG_PATH").ok();
 
         let temp_dir = TempDir::new().unwrap();
-        let config_path = temp_dir.path().join("custom-config.toml");
+        let config_path = temp_dir.path().join("config.toml");
         fs::write(
             &config_path,
             "[[repositories]]\nowner = \"test\"\nname = \"repo\"",

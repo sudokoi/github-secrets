@@ -140,7 +140,7 @@ fn test_error_chain_formatting() {
 #[tokio::test]
 async fn test_rate_limiter() {
     use github_secrets::rate_limit::RateLimiter;
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
     let mut limiter = RateLimiter::new();
 
@@ -150,8 +150,9 @@ async fn test_rate_limiter() {
     limiter.release();
     let elapsed = start.elapsed();
 
-    // Should be very fast (less than 100ms)
-    assert!(elapsed.as_millis() < 100);
+    // Should be very fast (less than 1 second, even on slow CI runners)
+    // The actual wait would be 1 hour if we hit the rate limit, so this verifies we don't wait
+    assert!(elapsed < Duration::from_secs(1));
 
     // Multiple requests should work
     for _ in 0..5 {

@@ -103,12 +103,13 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limiter_wait() {
         let mut limiter = RateLimiter::new();
-        // First request should not wait
+        // First request should not wait (should be much faster than the 1-hour window)
         let start = Instant::now();
         limiter.wait_if_needed().await;
         limiter.release();
         let elapsed = start.elapsed();
-        // Should be very fast (less than 100ms)
-        assert!(elapsed < Duration::from_millis(100));
+        // Should be very fast (less than 1 second, even on slow CI runners)
+        // The actual wait would be 1 hour if we hit the rate limit, so this verifies we don't wait
+        assert!(elapsed < Duration::from_secs(1));
     }
 }
