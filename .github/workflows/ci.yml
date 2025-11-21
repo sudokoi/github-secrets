@@ -75,8 +75,7 @@ jobs:
           name: codecov-umbrella
           fail_ci_if_error: false
           verbose: true
-          # Token is optional - only needed for private repositories
-          # For public repos, Codecov works without a token
+          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Check formatting
         run: cargo fmt -- --check
