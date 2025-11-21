@@ -116,14 +116,18 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
+      - name: Install git-cliff
+        run: |
+          cargo install git-cliff --locked
+          git-cliff --version
+
       - name: Generate changelog
         id: changelog
-        uses: orhun/git-cliff-action@v2
-        with:
-          config: cliff.toml
-          args: --verbose --tag ${{ steps.version.outputs.version }}
-        env:
-          OUTPUT: CHANGELOG.md
+        run: |
+          git-cliff --config cliff.toml --verbose --tag ${{ steps.version.outputs.version }} --output CHANGELOG.md
+          echo "Changelog generated successfully"
+          echo "First 30 lines of CHANGELOG.md:"
+          head -30 CHANGELOG.md || true
 
       - name: Extract changelog for release notes
         id: extract_changelog
