@@ -53,51 +53,39 @@ impl GitHubClient {
         Ok(public_key)
     }
 
-    /// Encrypt secret value using NaCl box encryption with repository's public key.
-    /// Returns base64-encoded encrypted data in format: [nonce][ephemeral_public_key][encrypted_data]
+    /// Encrypt secret value using NaCl sealed box encryption with repository's public key.
+    /// Uses X25519-XSalsa20-Poly1305 as required by GitHub API.
+    /// Sealed box automatically handles nonce and ephemeral key generation.
+    /// Returns base64-encoded encrypted data.
     fn encrypt_secret(&self, public_key: &str, secret_value: &str) -> Result<String> {
-        use crypto_box::{PublicKey, SecretKey, ChaChaBox, aead::Aead};
-        use rand_core::OsRng;
-        use rand::RngCore;
+        use sodoken::crypto_box;
 
         let public_key_bytes = general_purpose::STANDARD
             .decode(public_key)
             .context("Failed to decode public key")?;
 
-        if public_key_bytes.len() != 32 {
+        if public_key_bytes.len() != crypto_box::XSALSA_PUBLICKEYBYTES {
             anyhow::bail!(
-                "Invalid public key length. Expected 32 bytes, got {}",
+                "Invalid public key length. Expected {} bytes, got {}",
+                crypto_box::XSALSA_PUBLICKEYBYTES,
                 public_key_bytes.len()
             );
         }
 
-        let public_key_array: [u8; 32] = public_key_bytes
-            .try_into()
-            .map_err(|_| anyhow::anyhow!("Invalid public key length"))?;
-        let repository_public_key = PublicKey::from(public_key_array);
+        let mut repository_public_key = [0u8; crypto_box::XSALSA_PUBLICKEYBYTES];
+        repository_public_key.copy_from_slice(&public_key_bytes);
 
-        // Generate ephemeral key pair for this encryption session
-        let ephemeral_secret = SecretKey::generate(&mut OsRng);
-        let ephemeral_public = ephemeral_secret.public_key();
+        // Encrypt using sealed box (automatically generates ephemeral key and nonce)
+        let secret_bytes = secret_value.as_bytes();
+        let mut encrypted = vec![0u8; secret_bytes.len() + crypto_box::XSALSA_SEALBYTES];
+        
+        crypto_box::xsalsa_seal(
+            &mut encrypted,
+            secret_bytes,
+            &repository_public_key,
+        )?;
 
-        let cipher = ChaChaBox::new(&repository_public_key, &ephemeral_secret);
-
-        // Generate random nonce for encryption
-        let mut nonce_bytes = [0u8; 24];
-        rand::thread_rng().fill_bytes(&mut nonce_bytes);
-        let nonce = crypto_box::Nonce::from(nonce_bytes);
-
-        let encrypted = cipher
-            .encrypt(&nonce, secret_value.as_bytes())
-            .map_err(|_| anyhow::anyhow!("Failed to encrypt secret"))?;
-
-        // Combine components: nonce (24 bytes) + ephemeral public key (32 bytes) + encrypted data
-        let mut combined = Vec::new();
-        combined.extend_from_slice(&nonce_bytes);
-        combined.extend_from_slice(ephemeral_public.as_bytes());
-        combined.extend_from_slice(&encrypted);
-
-        Ok(general_purpose::STANDARD.encode(&combined))
+        Ok(general_purpose::STANDARD.encode(&encrypted))
     }
 
     /// Retrieve information about a secret, including last update timestamp.
@@ -141,36 +129,54 @@ impl GitHubClient {
             key_id: public_key.key_id,
         };
 
-        self.octocrab
-            .put::<(), _, _>(path, Some(&body))
-            .await
-            .map_err(|e| {
-                // Extract detailed error information
+        // GitHub API returns 204 No Content on success (empty body)
+        // Try to parse as JSON, but if it's empty (EOF error), that's also success
+        match self.octocrab.put::<serde::de::IgnoredAny, _, _>(path, Some(&body)).await {
+            Ok(_) => {
+                // Success - response parsed (even if empty)
+            }
+            Err(octocrab::Error::Json { source, .. }) => {
+                // JSON parsing error - check if it's due to empty response (204 No Content)
+                // Empty responses mean success for PUT requests that return 204
+                let error_msg = source.to_string();
+                if error_msg.contains("EOF") || error_msg.contains("expected value") {
+                    // Empty response (204 No Content) - this is success
+                    // The secret was updated successfully
+                } else {
+                    // Actual JSON parsing error
+                    return Err(anyhow::anyhow!("JSON parsing error: {}", source));
+                }
+            }
+            Err(e) => {
+                // Extract detailed error information for other errors
                 let error_details = match &e {
                     octocrab::Error::GitHub { source, .. } => {
-                        format!(
-                            "GitHub API error (status {}): {}. {}",
+                        let mut msg = format!(
+                            "GitHub API error (status {}): {}",
                             source.status_code,
-                            source.message,
-                            source.errors.as_ref()
-                                .map(|errs| format!("Details: {:?}", errs))
-                                .unwrap_or_default()
-                        )
+                            source.message
+                        );
+                        if let Some(errs) = &source.errors {
+                            if !errs.is_empty() {
+                                msg.push_str(&format!(" Details: {:?}", errs));
+                            }
+                        }
+                        if let Some(doc_url) = &source.documentation_url {
+                            msg.push_str(&format!(" Documentation: {}", doc_url));
+                        }
+                        anyhow::anyhow!("{}", msg)
                     }
                     octocrab::Error::Http { source, .. } => {
-                        format!("HTTP error: {}", source)
-                    }
-                    octocrab::Error::Json { source, .. } => {
-                        format!("JSON parsing error: {}", source)
+                        anyhow::anyhow!("HTTP error: {}", source)
                     }
                     octocrab::Error::Uri { source, .. } => {
-                        format!("URI error: {}", source)
+                        anyhow::anyhow!("URI error: {}", source)
                     }
-                    _ => format!("{}", e),
+                    _ => anyhow::anyhow!("{}", e),
                 };
-                anyhow::anyhow!("{}", error_details)
-            })
-            .context("Failed to update secret")?;
+                return Err(error_details);
+            }
+        }
 
         Ok(())
     }

@@ -1,7 +1,7 @@
 [package]
-name = "update-secrets"
+name = "github-secrets"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -12,8 +12,7 @@ toml = "0.8"
 anyhow = "1.0"
 thiserror = "1.0"
 base64 = "0.21"
-crypto_box = { version = "0.9", features = ["chacha20", "std"] }
-rand_core = "0.6"
+sodoken = "0.1"
 rand = "0.8"
 crossterm = "0.27"
 dialoguer = "0.11"

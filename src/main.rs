@@ -102,13 +102,14 @@ async fn main() -> Result<()> {
                     });
                 }
                 Err(e) => {
-                    // Extract detailed error message
-                    let error_msg = format!("{}", e);
-                    let detailed_error = if error_msg.contains("GitHub API error") {
-                        error_msg.clone()
-                    } else {
-                        format!("{}", e)
-                    };
+                    // Extract detailed error message from error chain
+                    let mut error_chain = vec![format!("{}", e)];
+                    let mut current = e.source();
+                    while let Some(err) = current {
+                        error_chain.push(format!("{}", err));
+                        current = err.source();
+                    }
+                    let detailed_error = error_chain.join(" → ");
                     
                     println!("{} {} {} {} {}",
                         "✗".red(),
@@ -206,7 +207,14 @@ async fn main() -> Result<()> {
                         }
                     }
                     Err(e) => {
-                        let error_msg = format!("{}", e);
+                        let mut error_chain = vec![format!("{}", e)];
+                        let mut current = e.source();
+                        while let Some(err) = current {
+                            error_chain.push(format!("{}", err));
+                            current = err.source();
+                        }
+                        let detailed_error = error_chain.join(" → ");
+                        
                         println!("{} {} {} {} {} {}",
                             "✗".red(),
                             "Failed to update secret".red(),
@@ -214,7 +222,7 @@ async fn main() -> Result<()> {
                             "in".red(),
                             repo_display.bright_red(),
                             "(retry)".bright_black());
-                        println!("{} {}", "  Reason:".bright_red(), error_msg.bright_red());
+                        println!("{} {}", "  Reason:".bright_red(), detailed_error.bright_red());
                     }
                 }
             }

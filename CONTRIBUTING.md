@@ -1,6 +1,6 @@
-# Contributing to update-secrets
+# Contributing to github-secrets
 
-Thank you for your interest in contributing to update-secrets! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to github-secrets! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -12,7 +12,7 @@ Thank you for your interest in contributing to update-secrets! This document pro
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/update-secrets.git`
+2. Clone your fork: `git clone https://github.com/your-username/github-secrets.git`
 3. Create a branch: `git checkout -b feature/your-feature-name`
 4. Make your changes
 5. Test your changes: `cargo test && cargo build`
@@ -146,5 +146,5 @@ Feel free to:
 - Contact the maintainer: perfectsudh@gmail.com
 - Check existing issues and discussions
 
-Thank you for contributing to update-secrets!
+Thank you for contributing to github-secrets!
 
