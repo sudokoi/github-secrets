@@ -6,7 +6,8 @@ A command-line tool for securely updating GitHub repository secrets across multi
 
 - **Multi-repository support**: Update secrets across multiple repositories in a single run
 - **Interactive selection**: Choose specific repositories or select all at once
-- **Secure encryption**: Uses NaCl box encryption (pure Rust, no system dependencies)
+- **Secure encryption**: Uses NaCl sealed box encryption (pure Rust, no system dependencies)
+- **XDG Config Directory support**: Automatically finds config and .env files in XDG config directory
 - **Confirmation prompts**: Shows last update date and asks for confirmation before overwriting existing secrets
 - **Error handling**: Continues processing on errors and provides retry functionality
 - **Detailed summaries**: Per-repository breakdown and overall operation statistics
@@ -31,6 +32,55 @@ The binary will be available at `target/release/github-secrets`.
 ## Usage
 
 ### Initial Setup
+
+The tool supports multiple locations for configuration files, following the XDG Base Directory specification:
+
+**Configuration File Locations (priority order):**
+
+1. **XDG Config Directory** (recommended for system-wide setup):
+
+   - `$XDG_CONFIG_HOME/github-secrets/config.toml` (if `XDG_CONFIG_HOME` is set)
+   - `~/.config/github-secrets/config.toml` (default XDG location)
+   - `$XDG_CONFIG_HOME/github-secrets/.env` (if `XDG_CONFIG_HOME` is set)
+   - `~/.config/github-secrets/.env` (default XDG location)
+
+2. **Current Directory** (fallback):
+
+   - `./config.toml`
+   - `./.env`
+
+3. **Environment Variable Override**:
+   - `CONFIG_PATH` environment variable (if set, takes highest priority)
+
+**Setup Options:**
+
+**Option 1: XDG Config Directory (Recommended)**
+
+```bash
+# Create XDG config directory
+mkdir -p ~/.config/github-secrets
+
+# Create .env file
+cat > ~/.config/github-secrets/.env << EOF
+GITHUB_TOKEN=your_github_token_here
+XDG_CONFIG_HOME=$HOME/.config  # Optional: explicitly set XDG_CONFIG_HOME
+EOF
+
+# Create config.toml file
+cat > ~/.config/github-secrets/config.toml << EOF
+[[repositories]]
+owner = "your_github_username"
+name = "your_repository_name"
+alias = "My Main Repo"  # Optional friendly name
+
+[[repositories]]
+owner = "your_github_username"
+name = "another_repository"
+alias = "Secondary Repo"  # Optional friendly name
+EOF
+```
+
+**Option 2: Current Directory (Simple)**
 
 1. **Create a `.env` file** in the project root:
 
@@ -67,13 +117,16 @@ github-secrets
    - Press `ESC` to finish entering secrets (requires confirmation)
    - Empty keys or values are skipped
 3. **Confirm overwrites**: If a secret already exists, you'll be shown the last update date and asked for confirmation
+   - Press `y` or `Y` to confirm (no Enter required)
+   - Press `N`, `Enter`, or `ESC` to skip (no Enter required)
 4. **Review summary**: See overall statistics and per-repository breakdown
 5. **Retry failed operations**: Option to retry any failed secret updates
 
 ### Environment Variables
 
-- `GITHUB_TOKEN`: Required. Your GitHub Personal Access Token
-- `CONFIG_PATH`: Optional. Path to config file (defaults to `config.toml`)
+- `GITHUB_TOKEN`: Required. Your GitHub Personal Access Token (can be set in `.env` file)
+- `CONFIG_PATH`: Optional. Path to config file (overrides default search locations)
+- `XDG_CONFIG_HOME`: Optional. Custom XDG config directory (defaults to `~/.config` if not set)
 
 ### Example Session
 
@@ -93,7 +146,7 @@ Secret value: sk_live_abc123...
 Secret pair added.
 
 Secret key (or ESC to finish): [ESC]
-Are you sure you want to exit? (y/N): y
+Finish entering secrets? (y/N): y
 
 Processing 1 secret(s) across 2 repository/repositories...
 
@@ -141,14 +194,33 @@ cd github-secrets
 cargo build
 ```
 
-3. **Set up environment**:
+3. **Set up environment** (choose one):
+
+**Option A: XDG Config Directory**
+
+```bash
+mkdir -p ~/.config/github-secrets
+cp .env.example ~/.config/github-secrets/.env
+# Edit ~/.config/github-secrets/.env and add your GITHUB_TOKEN
+```
+
+**Option B: Current Directory**
 
 ```bash
 cp .env.example .env
 # Edit .env and add your GITHUB_TOKEN
 ```
 
-4. **Create config file**:
+4. **Create config file** (choose one):
+
+**Option A: XDG Config Directory**
+
+```bash
+cp config.example.toml ~/.config/github-secrets/config.toml
+# Edit ~/.config/github-secrets/config.toml with your repository details
+```
+
+**Option B: Current Directory**
 
 ```bash
 cp config.example.toml config.toml
@@ -193,7 +265,8 @@ github-secrets/
 │   ├── main.rs          # Entry point and orchestration
 │   ├── config.rs        # Configuration file parsing
 │   ├── github.rs        # GitHub API client and encryption
-│   └── prompt.rs        # Interactive user prompts
+│   ├── prompt.rs        # Interactive user prompts
+│   └── paths.rs         # XDG config directory and file path resolution
 ├── Cargo.toml           # Project dependencies
 ├── config.example.toml  # Example configuration
 ├── .env.example         # Example environment variables

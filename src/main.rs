@@ -1,6 +1,7 @@
 mod config;
 mod github;
 mod prompt;
+mod paths;
 
 use anyhow::{Context, Result};
 use std::env;
@@ -16,14 +17,18 @@ struct UpdateResult {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    dotenv::dotenv().ok();
+    // Load .env file from XDG config directory or current directory
+    paths::load_env_file();
     
     let token = env::var("GITHUB_TOKEN")
         .context("GITHUB_TOKEN not found in environment. Please set it in .env file")?;
 
-    let config_path = env::var("CONFIG_PATH").unwrap_or_else(|_| "config.toml".to_string());
-    let config = config::Config::from_file(&config_path)
-        .with_context(|| format!("Failed to load config from {}", config_path))?;
+    // Find config file in XDG config directory or current directory
+    let config_path = paths::find_config_file()?;
+    let config = config::Config::from_file(
+        config_path.to_str().context("Config path is not valid UTF-8")?
+    )
+    .with_context(|| format!("Failed to load config from {}", config_path.display()))?;
 
     let repositories = config.get_repositories();
     let selected_indices = prompt::select_repositories(repositories)
