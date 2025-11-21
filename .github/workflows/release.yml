@@ -11,6 +11,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -116,13 +120,24 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+          merge-multiple: true
 
       - name: Create checksums
         run: |
           cd artifacts
-          find . -type f \( -name "github-secrets" -o -name "github-secrets.exe" \) | while read file; do
-            sha256sum "$file" > "${file}.sha256"
+          echo "Files in artifacts directory:"
+          find . -type f || true
+          echo ""
+          echo "Creating checksums..."
+          find . -type f \( -name "github-secrets" -o -name "github-secrets.exe" \) ! -name "*.sha256" | while IFS= read -r file; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" > "${file}.sha256"
+              echo "Created checksum: ${file}.sha256"
+            fi
           done
+          echo ""
+          echo "All files after checksum creation:"
+          find . -type f || true
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -161,5 +176,4 @@ jobs:
             artifacts/**/*
           draft: false
           prerelease: ${{ contains(steps.version.outputs.version, '-') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
