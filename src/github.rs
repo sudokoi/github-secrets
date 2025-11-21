@@ -11,7 +11,9 @@ struct PublicKey {
 
 #[derive(Debug, Deserialize)]
 pub struct SecretInfo {
-    pub name: String,
+    #[serde(skip)]
+    #[allow(dead_code)]
+    name: String,
     #[serde(rename = "updated_at")]
     pub updated_at: Option<String>,
 }
@@ -142,6 +144,32 @@ impl GitHubClient {
         self.octocrab
             .put::<(), _, _>(path, Some(&body))
             .await
+            .map_err(|e| {
+                // Extract detailed error information
+                let error_details = match &e {
+                    octocrab::Error::GitHub { source, .. } => {
+                        format!(
+                            "GitHub API error (status {}): {}. {}",
+                            source.status_code,
+                            source.message,
+                            source.errors.as_ref()
+                                .map(|errs| format!("Details: {:?}", errs))
+                                .unwrap_or_default()
+                        )
+                    }
+                    octocrab::Error::Http { source, .. } => {
+                        format!("HTTP error: {}", source)
+                    }
+                    octocrab::Error::Json { source, .. } => {
+                        format!("JSON parsing error: {}", source)
+                    }
+                    octocrab::Error::Uri { source, .. } => {
+                        format!("URI error: {}", source)
+                    }
+                    _ => format!("{}", e),
+                };
+                anyhow::anyhow!("{}", error_details)
+            })
             .context("Failed to update secret")?;
 
         Ok(())
