@@ -287,10 +287,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## Author
-
-**Sudhanshu Ranjan**
-
-- GitHub: [@sudokoi](https://github.com/sudokoi)
-- Email: perfectsudh@gmail.com
