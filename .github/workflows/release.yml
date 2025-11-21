@@ -116,6 +116,55 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v2
+        with:
+          config: cliff.toml
+          args: --verbose --tag ${{ steps.version.outputs.version }}
+        env:
+          OUTPUT: CHANGELOG.md
+
+      - name: Extract changelog for release notes
+        id: extract_changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          VERSION_NUM="${VERSION#v}"  # Remove 'v' prefix
+
+          if [ -f CHANGELOG.md ]; then
+            # Extract the changelog section for this version
+            # Look for the version header and extract until next version or end
+            CHANGELOG_SECTION=$(awk -v version="$VERSION_NUM" '
+              BEGIN { found=0; in_section=0 }
+              /^## \[/ { 
+                if (in_section) exit
+                if ($0 ~ "\\[" version "\\]") { 
+                  found=1
+                  in_section=1
+                }
+              }
+              found { print }
+            ' CHANGELOG.md)
+            
+            if [ -z "$CHANGELOG_SECTION" ]; then
+              CHANGELOG_SECTION="### Changes\n\n- See commit history for details"
+            fi
+            
+            echo "changelog<<EOF" >> $GITHUB_OUTPUT
+            echo "$CHANGELOG_SECTION" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "changelog=### Changes\n\n- See commit history for details" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update CHANGELOG.md in repository
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md || true
+          git commit -m "chore: update CHANGELOG.md for ${{ steps.version.outputs.version }}" || exit 0
+          git push || exit 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -147,6 +196,8 @@ jobs:
           body: |
             ## Release ${{ steps.version.outputs.version }}
 
+            ${{ steps.extract_changelog.outputs.changelog }}
+
             ### Downloads
 
             - **Linux (x86_64)**: `github-secrets` (executable)
@@ -172,6 +223,10 @@ jobs:
             ### Checksums
 
             All files include SHA256 checksums for verification.
+
+            ---
+
+            **Full Changelog**: https://github.com/sudokoi/github-secrets/compare/v0.1.0...${{ steps.version.outputs.version }}
           files: |
             artifacts/**/*
           draft: false

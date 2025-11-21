@@ -1,0 +1,105 @@
+# Configuration for git-cliff changelog generator
+# See: https://git-cliff.org/docs/configuration
+
+[changelog]
+# Changelog header
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+"""
+
+# Changelog body template
+body = """
+{% if version %}\
+    ## [{{ version }}] - {{ timestamp | date(format="%Y-%m-%d") }}\
+{% else %}\
+    ## [Unreleased]\
+{% endif %}\
+
+{% if breaking %}\
+### ⚠️ BREAKING CHANGES
+
+{% for commit in breaking %}\
+- {{ commit.message }}\
+{% endfor %}\
+{% endif %}\
+
+{% if features %}\
+### ✨ Features
+
+{% for commit in features %}\
+- {{ commit.message }}\
+{% endfor %}\
+{% endif %}\
+
+{% if fixes %}\
+### 🐛 Bug Fixes
+
+{% for commit in fixes %}\
+- {{ commit.message }}\
+{% endfor %}\
+{% endif %}\
+
+{% if chores %}\
+### 🔧 Chores
+
+{% for commit in chores %}\
+- {{ commit.message }}\
+{% endfor %}\
+{% endif %}\
+"""
+
+# Footer template
+footer = """
+{% if previous %}\
+[Unreleased]: https://github.com/sudokoi/github-secrets/compare/{{ previous }}...HEAD
+{% if version %}\
+[{{ version }}]: https://github.com/sudokoi/github-secrets/compare/{{ previous }}...{{ version }}
+{% endif %}\
+{% else %}\
+[Unreleased]: https://github.com/sudokoi/github-secrets/compare/v0.1.0...HEAD
+{% if version %}\
+[{{ version }}]: https://github.com/sudokoi/github-secrets/releases/tag/{{ version }}
+{% endif %}\
+{% endif %}\
+"""
+
+# Git cliff configuration
+[git]
+# Parse commits using conventional commits format
+conventional_commits = true
+# Filter commits by type
+commit_parsers = [
+    { message = "^feat", group = "Features" },
+    { message = "^fix", group = "Bug Fixes" },
+    { message = "^chore", group = "Chores" },
+    { message = "^breaking", group = "BREAKING CHANGES" },
+    { message = "^feat!", group = "BREAKING CHANGES" },
+    { message = "^refactor", group = "Chores" },
+    { message = "^perf", group = "Chores" },
+    { message = "^test", group = "Chores" },
+    { message = "^docs", group = "Chores" },
+    { message = "^style", group = "Chores" },
+    { message = "^ci", group = "Chores" },
+    { message = "^build", group = "Chores" },
+]
+
+# Filter out merge commits and other noise
+filter_commits = true
+commit_preprocessors = [
+    { pattern = '\(#(\d+)\)', replace = "([#$1](https://github.com/sudokoi/github-secrets/pull/$1))" },
+]
+
+# Tag pattern
+tag_pattern = "v?[0-9]+\\.[0-9]+\\.[0-9]+"
+
+# Sort commits
+sort = "oldest"
+
+# Limit number of commits to process
+limit = 50
+

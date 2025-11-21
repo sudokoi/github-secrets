@@ -6,8 +6,11 @@ on:
   pull_request:
     branches: [main, develop]
 
+# Concurrency group ensures newer runs cancel older ones for the same branch/PR
+# For push events: group by event type and branch (e.g., ci-push-refs/heads/develop)
+# For PR events: group by event type and PR number (e.g., ci-pull_request-123)
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event.pull_request.number || github.sha }}
+  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -43,6 +46,37 @@ jobs:
 
       - name: Run tests
         run: cargo test --verbose --all-features
+
+      - name: Install cargo-tarpaulin
+        run: |
+          cargo install cargo-tarpaulin --locked
+        continue-on-error: true
+
+      - name: Generate coverage report
+        run: |
+          mkdir -p coverage
+          cargo tarpaulin --out Xml --output-dir coverage --all-features --timeout 120 --exclude-files 'tests/*'
+          echo "Coverage report generated. Files in coverage directory:"
+          ls -la coverage/ || true
+          if [ -f coverage/cobertura.xml ]; then
+            echo "✓ cobertura.xml found"
+          else
+            echo "✗ cobertura.xml not found"
+            find . -name "*.xml" -type f || true
+          fi
+        continue-on-error: true
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: always()
+        with:
+          files: ./coverage/cobertura.xml
+          flags: unittests
+          name: codecov-umbrella
+          fail_ci_if_error: false
+          verbose: true
+          # Token is optional - only needed for private repositories
+          # For public repos, Codecov works without a token
 
       - name: Check formatting
         run: cargo fmt -- --check
@@ -90,3 +124,9 @@ jobs:
 
       - name: Run tests
         run: cargo test --release --verbose
+        env:
+          # Run tests sequentially on Windows to avoid test isolation issues.
+          # On Windows, parallel test execution can cause CONFIG_PATH environment variable
+          # from one test to interfere with another test, causing false failures.
+          # For other platforms, use default parallel execution (set to high number to allow parallelism)
+          RUST_TEST_THREADS: ${{ matrix.os == 'windows-latest' && '1' || '10' }}

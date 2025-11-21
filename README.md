@@ -1,5 +1,8 @@
 # github-secrets
 
+[![codecov](https://codecov.io/gh/sudokoi/github-secrets/branch/main/graph/badge.svg)](https://codecov.io/gh/sudokoi/github-secrets)
+[![CI](https://github.com/sudokoi/github-secrets/workflows/CI/badge.svg)](https://github.com/sudokoi/github-secrets/actions)
+
 A command-line tool for securely updating GitHub repository secrets across multiple repositories. Built with Rust for performance and security.
 
 ## Features
@@ -11,6 +14,7 @@ A command-line tool for securely updating GitHub repository secrets across multi
 - **Confirmation prompts**: Shows last update date and asks for confirmation before overwriting existing secrets
 - **Error handling**: Continues processing on errors and provides retry functionality
 - **Detailed summaries**: Per-repository breakdown and overall operation statistics
+- **Comprehensive test coverage**: Extensive test suite with unit, integration, and edge case tests
 
 ## Installation
 
@@ -284,6 +288,52 @@ github-secrets/
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+## Test Coverage
+
+This project maintains comprehensive test coverage. Coverage reports are automatically generated on every commit and can be viewed at [Codecov](https://codecov.io/gh/sudokoi/github-secrets).
+
+### Running Coverage Locally
+
+To generate a coverage report locally, install `cargo-tarpaulin` and run:
+
+```bash
+cargo install cargo-tarpaulin
+cargo tarpaulin --out Html --output-dir coverage
+```
+
+This will generate an HTML coverage report in the `coverage` directory that you can open in your browser.
+
+### Coverage Statistics
+
+- **Total Tests**: 63 tests (26 unit + 11 edge cases + 3 integration + 14 GitHub API + 8 TUI + 1 doc test)
+- **Coverage Reports**: Automatically generated on every push to `main` and `develop` branches
+- **Coverage Badge**: Auto-updates in the README based on the latest coverage report
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed list of changes, including breaking changes, new features, and bug fixes.
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+### Commit Message Format
+
+This project uses [Conventional Commits](https://www.conventionalcommits.org/) for automatic changelog generation. Please format your commit messages as follows:
+
+- `feat:` - A new feature
+- `fix:` - A bug fix
+- `chore:` - Changes to build process or auxiliary tools
+- `breaking:` or `feat!:` - A breaking change
+- `docs:` - Documentation only changes
+- `style:` - Code style changes (formatting, etc.)
+- `refactor:` - Code refactoring
+- `test:` - Adding or updating tests
+- `perf:` - Performance improvements
+
+Examples:
+
+- `feat: add support for multiple repositories`
+- `fix: handle empty config file gracefully`
+- `chore: update dependencies`
+- `breaking: change config file format`

@@ -27,11 +27,10 @@ async fn main() -> Result<()> {
 
     let token_str = env::var("GITHUB_TOKEN")
         .context("GITHUB_TOKEN not found in environment. Please set it in .env file")?;
-    
+
     // Validate token format
-    validation::validate_token(&token_str)
-        .context("Invalid GitHub token format")?;
-    
+    validation::validate_token(&token_str).context("Invalid GitHub token format")?;
+
     let token = Arc::new(token_str);
 
     // Find config file in XDG config directory or current directory
@@ -65,7 +64,7 @@ async fn main() -> Result<()> {
 
     let mut all_results = Vec::new();
     let mut all_failed_secrets: Vec<(usize, prompt::SecretPair)> = Vec::new();
-    
+
     // Initialize rate limiter to respect GitHub API limits
     let mut rate_limiter = rate_limit::RateLimiter::new();
 
@@ -91,12 +90,12 @@ async fn main() -> Result<()> {
         for secret in &secrets {
             // Wait for rate limit before making API call
             rate_limiter.wait_if_needed().await;
-            
+
             let secret_info = github_client
                 .get_secret_info(&secret.key)
                 .await
                 .context("Failed to check if secret exists")?;
-            
+
             rate_limiter.release();
 
             if let Some(info) = &secret_info {
@@ -121,13 +120,13 @@ async fn main() -> Result<()> {
 
             // Wait for rate limit before making API call
             rate_limiter.wait_if_needed().await;
-            
+
             let update_result = github_client
                 .update_secret(&secret.key, &secret.value)
                 .await;
-            
+
             rate_limiter.release();
-            
+
             match update_result {
                 Ok(()) => {
                     println!(

@@ -38,18 +38,22 @@ impl RateLimiter {
     /// 3. Waits if we've exceeded the hourly request limit
     pub async fn wait_if_needed(&mut self) {
         let now = Instant::now();
-        
+
         // Clean up old request timestamps (outside the 1-hour window)
-        self.request_times.retain(|&time| now.duration_since(time) < self.window);
-        
+        self.request_times
+            .retain(|&time| now.duration_since(time) < self.window);
+
         // Wait if we're at the concurrent request limit
         loop {
             if self.current_concurrent < self.max_concurrent {
                 break;
             }
-            sleep(Duration::from_millis(crate::constants::rate_limit::BATCH_DELAY_MS)).await;
+            sleep(Duration::from_millis(
+                crate::constants::rate_limit::BATCH_DELAY_MS,
+            ))
+            .await;
         }
-        
+
         // Wait if we've exceeded the hourly request limit
         if self.request_times.len() >= self.max_requests_per_hour as usize {
             // Calculate how long to wait until the oldest request expires
@@ -60,11 +64,12 @@ impl RateLimiter {
                     sleep(wait_time).await;
                     // Clean up again after waiting
                     let now = Instant::now();
-                    self.request_times.retain(|&time| now.duration_since(time) < self.window);
+                    self.request_times
+                        .retain(|&time| now.duration_since(time) < self.window);
                 }
             }
         }
-        
+
         // Record this request
         self.request_times.push(Instant::now());
         self.current_concurrent += 1;
@@ -107,4 +112,3 @@ mod tests {
         assert!(elapsed < Duration::from_millis(100));
     }
 }
-

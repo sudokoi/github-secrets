@@ -39,4 +39,3 @@ pub fn format_error_chain(error: &Error) -> String {
     }
     error_chain.join(" → ")
 }
-

@@ -53,14 +53,9 @@ impl From<octocrab::Error> for GitHubError {
                 message: source.message,
                 documentation_url: source.documentation_url,
             },
-            octocrab::Error::Http { source, .. } => {
-                GitHubError::HttpError(source.to_string())
-            }
-            octocrab::Error::Uri { source, .. } => {
-                GitHubError::UriError(source.to_string())
-            }
+            octocrab::Error::Http { source, .. } => GitHubError::HttpError(source.to_string()),
+            octocrab::Error::Uri { source, .. } => GitHubError::UriError(source.to_string()),
             _ => GitHubError::HttpError(err.to_string()),
         }
     }
 }
-
