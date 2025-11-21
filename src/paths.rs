@@ -1,6 +1,6 @@
+use anyhow::Result;
 use std::env;
 use std::path::PathBuf;
-use anyhow::Result;
 
 /// Find the config.toml file.
 /// Priority:
@@ -25,7 +25,10 @@ pub fn find_config_file() -> Result<PathBuf> {
 
     // 2. Try default XDG location (~/.config/github-secrets/config.toml)
     if let Some(home) = dirs::home_dir() {
-        let default_xdg_config = home.join(".config").join("github-secrets").join("config.toml");
+        let default_xdg_config = home
+            .join(".config")
+            .join("github-secrets")
+            .join("config.toml");
         if default_xdg_config.exists() {
             return Ok(default_xdg_config);
         }
@@ -43,7 +46,10 @@ pub fn find_config_file() -> Result<PathBuf> {
 
     // If none exists, return default XDG path (will show error when trying to read)
     if let Some(home) = dirs::home_dir() {
-        Ok(home.join(".config").join("github-secrets").join("config.toml"))
+        Ok(home
+            .join(".config")
+            .join("github-secrets")
+            .join("config.toml"))
     } else {
         Ok(PathBuf::from("config.toml"))
     }
@@ -77,7 +83,7 @@ pub fn load_env_file() {
         let default_xdg_env = home.join(".config").join("github-secrets").join(".env");
         if default_xdg_env.exists() {
             let _ = dotenv::from_path(&default_xdg_env);
-            
+
             // If XDG_CONFIG_HOME was set in the .env file, reload from the new location
             if let Ok(new_xdg_config_home) = env::var("XDG_CONFIG_HOME") {
                 let new_xdg_env_path = PathBuf::from(new_xdg_config_home)
@@ -105,4 +111,3 @@ pub fn load_env_file() {
     // Fallback: try current directory again (dotenv default behavior)
     let _ = dotenv::dotenv();
 }
-

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose, Engine};
+use base64::{Engine, engine::general_purpose};
 use octocrab::Octocrab;
 use serde::{Deserialize, Serialize};
 
@@ -78,12 +78,8 @@ impl GitHubClient {
         // Encrypt using sealed box (automatically generates ephemeral key and nonce)
         let secret_bytes = secret_value.as_bytes();
         let mut encrypted = vec![0u8; secret_bytes.len() + crypto_box::XSALSA_SEALBYTES];
-        
-        crypto_box::xsalsa_seal(
-            &mut encrypted,
-            secret_bytes,
-            &repository_public_key,
-        )?;
+
+        crypto_box::xsalsa_seal(&mut encrypted, secret_bytes, &repository_public_key)?;
 
         Ok(general_purpose::STANDARD.encode(&encrypted))
     }
@@ -96,18 +92,18 @@ impl GitHubClient {
             self.owner, self.repo, secret_name
         );
 
-        match self.octocrab.get::<SecretInfo, _, _>(path, None::<&()>).await {
+        match self
+            .octocrab
+            .get::<SecretInfo, _, _>(path, None::<&()>)
+            .await
+        {
             Ok(secret_info) => Ok(Some(secret_info)),
             Err(octocrab::Error::GitHub { source, .. }) if source.status_code == 404 => Ok(None),
             Err(e) => Err(anyhow::anyhow!("{}", e)).context("Failed to get secret info"),
         }
     }
 
-    pub async fn update_secret(
-        &self,
-        secret_name: &str,
-        secret_value: &str,
-    ) -> Result<()> {
+    pub async fn update_secret(&self, secret_name: &str, secret_value: &str) -> Result<()> {
         let public_key = self.get_public_key().await?;
         let encrypted_value = self
             .encrypt_secret(&public_key.key, secret_value)
@@ -131,7 +127,11 @@ impl GitHubClient {
 
         // GitHub API returns 204 No Content on success (empty body)
         // Try to parse as JSON, but if it's empty (EOF error), that's also success
-        match self.octocrab.put::<serde::de::IgnoredAny, _, _>(path, Some(&body)).await {
+        match self
+            .octocrab
+            .put::<serde::de::IgnoredAny, _, _>(path, Some(&body))
+            .await
+        {
             Ok(_) => {
                 // Success - response parsed (even if empty)
             }
@@ -153,8 +153,7 @@ impl GitHubClient {
                     octocrab::Error::GitHub { source, .. } => {
                         let mut msg = format!(
                             "GitHub API error (status {}): {}",
-                            source.status_code,
-                            source.message
+                            source.status_code, source.message
                         );
                         if let Some(errs) = &source.errors {
                             if !errs.is_empty() {

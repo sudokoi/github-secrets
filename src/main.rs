@@ -1,11 +1,11 @@
 mod config;
 mod github;
-mod prompt;
 mod paths;
+mod prompt;
 
 use anyhow::{Context, Result};
-use std::env;
 use colored::*;
+use std::env;
 
 #[derive(Debug, Clone)]
 struct UpdateResult {
@@ -19,35 +19,38 @@ struct UpdateResult {
 async fn main() -> Result<()> {
     // Load .env file from XDG config directory or current directory
     paths::load_env_file();
-    
+
     let token = env::var("GITHUB_TOKEN")
         .context("GITHUB_TOKEN not found in environment. Please set it in .env file")?;
 
     // Find config file in XDG config directory or current directory
     let config_path = paths::find_config_file()?;
     let config = config::Config::from_file(
-        config_path.to_str().context("Config path is not valid UTF-8")?
+        config_path
+            .to_str()
+            .context("Config path is not valid UTF-8")?,
     )
     .with_context(|| format!("Failed to load config from {}", config_path.display()))?;
 
     let repositories = config.get_repositories();
-    let selected_indices = prompt::select_repositories(repositories)
-        .context("Failed to select repositories")?;
+    let selected_indices =
+        prompt::select_repositories(repositories).context("Failed to select repositories")?;
 
-    let secrets = prompt::prompt_secrets()
-        .context("Failed to read secrets from user")?;
+    let secrets = prompt::prompt_secrets().context("Failed to read secrets from user")?;
 
     if secrets.is_empty() {
         println!("{}", "No secrets to update.".yellow());
         return Ok(());
     }
 
-    println!("\n{} {} {} {} {}...\n", 
+    println!(
+        "\n{} {} {} {} {}...\n",
         "Processing".cyan(),
         secrets.len().to_string().bright_cyan(),
         "secret(s) across".cyan(),
         selected_indices.len().to_string().bright_cyan(),
-        "repository/repositories".cyan());
+        "repository/repositories".cyan()
+    );
 
     let mut all_results = Vec::new();
     let mut all_failed_secrets: Vec<(usize, prompt::SecretPair)> = Vec::new();
@@ -55,9 +58,13 @@ async fn main() -> Result<()> {
     for &repo_index in &selected_indices {
         let selected_repo = &repositories[repo_index];
         let repo_display = selected_repo.display_name();
-        
+
         println!("{}", "=".repeat(60).bright_black());
-        println!("{} {}", "Repository:".bright_cyan(), repo_display.bright_cyan().bold());
+        println!(
+            "{} {}",
+            "Repository:".bright_cyan(),
+            repo_display.bright_cyan().bold()
+        );
         println!("{}", "=".repeat(60).bright_black());
 
         let github_client = github::GitHubClient::new(
@@ -76,11 +83,13 @@ async fn main() -> Result<()> {
             if let Some(info) = &secret_info {
                 let last_updated = info.updated_at.as_deref();
                 if !prompt::confirm_secret_update(&secret.key, last_updated)? {
-                    println!("{} {} {} {}", 
-                        "⊘".yellow(), 
+                    println!(
+                        "{} {} {} {}",
+                        "⊘".yellow(),
                         "Skipping secret".yellow(),
                         format!("'{}'", secret.key).bright_yellow(),
-                        format!("in {}", repo_display).yellow());
+                        format!("in {}", repo_display).yellow()
+                    );
                     all_results.push(UpdateResult {
                         secret_name: secret.key.clone(),
                         repository: repo_display.clone(),
@@ -91,14 +100,19 @@ async fn main() -> Result<()> {
                 }
             }
 
-            match github_client.update_secret(&secret.key, &secret.value).await {
+            match github_client
+                .update_secret(&secret.key, &secret.value)
+                .await
+            {
                 Ok(()) => {
-                    println!("{} {} {} {} {}", 
+                    println!(
+                        "{} {} {} {} {}",
                         "✓".green(),
                         "Successfully updated secret".green(),
                         format!("'{}'", secret.key).bright_green(),
                         "in".green(),
-                        repo_display.bright_green());
+                        repo_display.bright_green()
+                    );
                     all_results.push(UpdateResult {
                         secret_name: secret.key.clone(),
                         repository: repo_display.clone(),
@@ -115,15 +129,21 @@ async fn main() -> Result<()> {
                         current = err.source();
                     }
                     let detailed_error = error_chain.join(" → ");
-                    
-                    println!("{} {} {} {} {}",
+
+                    println!(
+                        "{} {} {} {} {}",
                         "✗".red(),
                         "Failed to update secret".red(),
                         format!("'{}'", secret.key).bright_red(),
                         "in".red(),
-                        repo_display.bright_red());
-                    println!("{} {}", "  Reason:".bright_red(), detailed_error.bright_red());
-                    
+                        repo_display.bright_red()
+                    );
+                    println!(
+                        "{} {}",
+                        "  Reason:".bright_red(),
+                        detailed_error.bright_red()
+                    );
+
                     all_results.push(UpdateResult {
                         secret_name: secret.key.clone(),
                         repository: repo_display.clone(),
@@ -140,13 +160,25 @@ async fn main() -> Result<()> {
     println!("\n{}", "=".repeat(60).bright_black());
     println!("{}", "Overall Summary".bright_cyan().bold());
     println!("{}", "=".repeat(60).bright_black());
-    
+
     let success_count = all_results.iter().filter(|r| r.success).count();
     let failure_count = all_results.len() - success_count;
-    
-    println!("{} {}", "Total operations:".cyan(), all_results.len().to_string().bright_cyan());
-    println!("{} {}", "Successful:".green(), success_count.to_string().bright_green());
-    println!("{} {}", "Failed:".red(), failure_count.to_string().bright_red());
+
+    println!(
+        "{} {}",
+        "Total operations:".cyan(),
+        all_results.len().to_string().bright_cyan()
+    );
+    println!(
+        "{} {}",
+        "Successful:".green(),
+        success_count.to_string().bright_green()
+    );
+    println!(
+        "{} {}",
+        "Failed:".red(),
+        failure_count.to_string().bright_red()
+    );
 
     // Aggregate results by repository for breakdown
     use std::collections::HashMap;
@@ -162,51 +194,66 @@ async fn main() -> Result<()> {
     for (repo, results) in &repo_results {
         let repo_success = results.iter().filter(|r| r.success).count();
         let repo_failure = results.len() - repo_success;
-        println!("  {}: {} {}, {} {}", 
+        println!(
+            "  {}: {} {}, {} {}",
             repo.bright_cyan(),
             repo_success.to_string().bright_green(),
             "successful".green(),
             repo_failure.to_string().bright_red(),
-            "failed".red());
+            "failed".red()
+        );
     }
 
     if failure_count > 0 {
         println!("\n{}", "Failed operations:".red().bold());
         for result in &all_results {
             if !result.success {
-                println!("  {} {} {} {}",
+                println!(
+                    "  {} {} {} {}",
                     "✗".red(),
                     format!("{}", result.secret_name).bright_red(),
                     format!("in {}", result.repository).red(),
-                    format!("→ {}", result.error.as_ref().unwrap_or(&"Unknown error".to_string())).bright_red());
+                    format!(
+                        "→ {}",
+                        result
+                            .error
+                            .as_ref()
+                            .unwrap_or(&"Unknown error".to_string())
+                    )
+                    .bright_red()
+                );
             }
         }
 
         if prompt::confirm_retry()? {
             println!("\n{}", "Retrying failed operations...\n".yellow());
-            
+
             for (repo_index, secret) in &all_failed_secrets {
                 let repo = &repositories[*repo_index];
                 let repo_display = repo.display_name();
-                
-                let github_client = github::GitHubClient::new(
-                    token.clone(),
-                    repo.owner.clone(),
-                    repo.name.clone(),
-                )
-                .context("Failed to initialize GitHub client")?;
-                
-                match github_client.update_secret(&secret.key, &secret.value).await {
+
+                let github_client =
+                    github::GitHubClient::new(token.clone(), repo.owner.clone(), repo.name.clone())
+                        .context("Failed to initialize GitHub client")?;
+
+                match github_client
+                    .update_secret(&secret.key, &secret.value)
+                    .await
+                {
                     Ok(()) => {
-                        println!("{} {} {} {} {} {}",
+                        println!(
+                            "{} {} {} {} {} {}",
                             "✓".green(),
                             "Successfully updated secret".green(),
                             format!("'{}'", secret.key).bright_green(),
                             "in".green(),
                             repo_display.bright_green(),
-                            "(retry)".bright_black());
-                        if let Some(result) = all_results.iter_mut()
-                            .find(|r| r.secret_name == secret.key && r.repository == repo_display) {
+                            "(retry)".bright_black()
+                        );
+                        if let Some(result) = all_results
+                            .iter_mut()
+                            .find(|r| r.secret_name == secret.key && r.repository == repo_display)
+                        {
                             result.success = true;
                             result.error = None;
                         }
@@ -219,31 +266,48 @@ async fn main() -> Result<()> {
                             current = err.source();
                         }
                         let detailed_error = error_chain.join(" → ");
-                        
-                        println!("{} {} {} {} {} {}",
+
+                        println!(
+                            "{} {} {} {} {} {}",
                             "✗".red(),
                             "Failed to update secret".red(),
                             format!("'{}'", secret.key).bright_red(),
                             "in".red(),
                             repo_display.bright_red(),
-                            "(retry)".bright_black());
-                        println!("{} {}", "  Reason:".bright_red(), detailed_error.bright_red());
+                            "(retry)".bright_black()
+                        );
+                        println!(
+                            "{} {}",
+                            "  Reason:".bright_red(),
+                            detailed_error.bright_red()
+                        );
                     }
                 }
             }
 
             let final_success = all_results.iter().filter(|r| r.success).count();
             let final_failure = all_results.len() - final_success;
-            
+
             println!("\n{}", "=".repeat(60).bright_black());
             println!("{}", "Final Summary".bright_cyan().bold());
             println!("{}", "=".repeat(60).bright_black());
-            println!("{} {}", "Total operations:".cyan(), all_results.len().to_string().bright_cyan());
-            println!("{} {}", "Successful:".green(), final_success.to_string().bright_green());
-            println!("{} {}", "Failed:".red(), final_failure.to_string().bright_red());
+            println!(
+                "{} {}",
+                "Total operations:".cyan(),
+                all_results.len().to_string().bright_cyan()
+            );
+            println!(
+                "{} {}",
+                "Successful:".green(),
+                final_success.to_string().bright_green()
+            );
+            println!(
+                "{} {}",
+                "Failed:".red(),
+                final_failure.to_string().bright_red()
+            );
         }
     }
 
     Ok(())
 }
-

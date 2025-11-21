@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::fs;
-use anyhow::{Context, Result};
 
 /// Configuration file structure containing repository definitions.
 #[derive(Debug, Deserialize)]
@@ -45,20 +45,19 @@ impl Config {
     pub fn from_file(path: &str) -> Result<Self> {
         let content = fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {}", path))?;
-        let mut config: Config = toml::from_str(&content)
-            .context("Failed to parse config file")?;
-        
+        let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+
         // Convert single repository to repositories list if present
         if let Some(repo) = config.repository.take() {
             if config.repositories.is_empty() {
                 config.repositories.push(repo);
             }
         }
-        
+
         if config.repositories.is_empty() {
             anyhow::bail!("No repositories found in config file");
         }
-        
+
         Ok(config)
     }
 
@@ -66,4 +65,3 @@ impl Config {
         &self.repositories
     }
 }
-
