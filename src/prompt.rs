@@ -67,6 +67,44 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
     Ok(secrets)
 }
 
+/// Read a single character from stdin without requiring Enter.
+/// Returns the character that was pressed.
+fn read_single_char() -> anyhow::Result<char> {
+    terminal::enable_raw_mode()?;
+    
+    let result = loop {
+        match event::read()? {
+            Event::Key(KeyEvent {
+                code: KeyCode::Char(c),
+                kind: KeyEventKind::Press,
+                ..
+            }) => {
+                break Ok(c);
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Enter,
+                kind: KeyEventKind::Press,
+                ..
+            }) => {
+                // Treat Enter as 'N' (default)
+                break Ok('N');
+            }
+            Event::Key(KeyEvent {
+                code: KeyCode::Esc,
+                kind: KeyEventKind::Press,
+                ..
+            }) => {
+                // Treat ESC as 'N' (default)
+                break Ok('N');
+            }
+            _ => {}
+        }
+    };
+    
+    terminal::disable_raw_mode()?;
+    result
+}
+
 /// Read user input with ESC key detection for early exit.
 /// Returns None if ESC was pressed, Some(input) if Enter was pressed.
 fn read_input_with_esc() -> anyhow::Result<Option<String>> {
@@ -121,14 +159,13 @@ fn read_input_with_esc() -> anyhow::Result<Option<String>> {
 }
 
 fn confirm_exit() -> anyhow::Result<bool> {
-    println!("\n\nAre you sure you want to exit? (y/N): ");
+    print!("\n{}", "Finish entering secrets? (y/N): ".yellow());
     io::stdout().flush()?;
     
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
+    let response = read_single_char()?;
+    println!(); // New line after input
     
-    let trimmed = input.trim().to_lowercase();
-    Ok(trimmed == "y" || trimmed == "yes")
+    Ok(response == 'y' || response == 'Y')
 }
 
 /// Format ISO 8601 date string to human-readable format.
@@ -163,22 +200,20 @@ pub fn confirm_secret_update(secret_name: &str, last_updated: Option<&str>) -> a
     print!("{}", ". Overwrite? (y/N): ".yellow());
     io::stdout().flush()?;
     
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
+    let response = read_single_char()?;
+    println!(); // New line after input
     
-    let trimmed = input.trim().to_lowercase();
-    Ok(trimmed == "y" || trimmed == "yes")
+    Ok(response == 'y' || response == 'Y')
 }
 
 pub fn confirm_retry() -> anyhow::Result<bool> {
     print!("\n{}", "Would you like to retry the failed operations? (y/N): ".yellow());
     io::stdout().flush()?;
     
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
+    let response = read_single_char()?;
+    println!(); // New line after input
     
-    let trimmed = input.trim().to_lowercase();
-    Ok(trimmed == "y" || trimmed == "yes")
+    Ok(response == 'y' || response == 'Y')
 }
 
 /// Present interactive menu for selecting one or more repositories.
