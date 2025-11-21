@@ -116,14 +116,24 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
 
+      - name: Install git-cliff
+        run: |
+          # Get the latest git-cliff release version
+          GIT_CLIFF_VERSION=$(curl -s https://api.github.com/repos/orhun/git-cliff/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/v//')
+          echo "Installing git-cliff version: $GIT_CLIFF_VERSION"
+          curl -L "https://github.com/orhun/git-cliff/releases/latest/download/git-cliff-${GIT_CLIFF_VERSION}-x86_64-unknown-linux-gnu.tar.gz" -o git-cliff.tar.gz
+          tar -xzf git-cliff.tar.gz
+          sudo mv git-cliff /usr/local/bin/
+          rm git-cliff.tar.gz
+          git-cliff --version
+
       - name: Generate changelog
         id: changelog
-        uses: orhun/git-cliff-action@v2
-        with:
-          config: cliff.toml
-          args: --verbose --tag ${{ steps.version.outputs.version }}
-        env:
-          OUTPUT: CHANGELOG.md
+        run: |
+          git-cliff --config cliff.toml --verbose --tag ${{ steps.version.outputs.version }} --output CHANGELOG.md
+          echo "Changelog generated successfully"
+          echo "First 30 lines of CHANGELOG.md:"
+          head -30 CHANGELOG.md || true
 
       - name: Extract changelog for release notes
         id: extract_changelog
