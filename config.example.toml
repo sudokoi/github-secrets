@@ -1,0 +1,12 @@
+# Repository configuration
+# Define multiple repositories to manage secrets across
+
+[[repositories]]
+owner = "your_github_username"
+name = "your_repository_name"
+alias = "My Main Repo"  # Optional friendly name for display
+
+[[repositories]]
+owner = "your_github_username"
+name = "another_repository"
+alias = "Secondary Repo"  # Optional friendly name for display
