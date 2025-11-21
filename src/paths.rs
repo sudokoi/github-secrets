@@ -22,10 +22,12 @@ pub fn find_config_file() -> Result<PathBuf> {
         }
     }
 
-    // 1. Try current directory first
-    let current_dir_config = PathBuf::from("config.toml");
-    if current_dir_config.exists() {
-        return Ok(current_dir_config);
+    // 1. Try current directory first (use absolute path to avoid race conditions)
+    if let Ok(current_dir) = env::current_dir() {
+        let current_dir_config = current_dir.join("config.toml");
+        if current_dir_config.exists() {
+            return Ok(current_dir_config);
+        }
     }
 
     // 2. Try default XDG location (~/.config/github-secrets/config.toml)
@@ -55,6 +57,8 @@ pub fn find_config_file() -> Result<PathBuf> {
             .join(".config")
             .join("github-secrets")
             .join("config.toml"))
+    } else if let Ok(current_dir) = env::current_dir() {
+        Ok(current_dir.join("config.toml"))
     } else {
         Ok(PathBuf::from("config.toml"))
     }

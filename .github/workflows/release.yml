@@ -100,18 +100,33 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Fetch full history for git-cliff to work properly
+          fetch-depth: 0
 
-      - name: Determine version
+      - name: Determine version and create branch
         id: version
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
+            # For workflow_dispatch, use current branch or skip PR creation
+            CURRENT_BRANCH=$(git branch --show-current || echo "")
+            if [ -n "$CURRENT_BRANCH" ]; then
+              echo "changelog_branch=$CURRENT_BRANCH" >> $GITHUB_OUTPUT
+            fi
           else
             VERSION="${GITHUB_REF#refs/tags/}"
+            # When triggered by tag, create a new branch from the tag for the PR
+            # Generate a random branch name to avoid conflicts
+            RANDOM_SUFFIX=$(openssl rand -hex 4)
+            CHANGELOG_BRANCH="changelog/$VERSION-$RANDOM_SUFFIX"
+            git checkout -b $CHANGELOG_BRANCH
+            echo "changelog_branch=$CHANGELOG_BRANCH" >> $GITHUB_OUTPUT
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Version: $VERSION"
@@ -158,16 +173,53 @@ jobs:
             echo "$CHANGELOG_SECTION" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           else
-            echo "changelog=### Changes\n\n- See commit history for details" >> $GITHUB_OUTPUT
+            echo "changelog=### Changes- See commit history for details" >> $GITHUB_OUTPUT
           fi
 
-      - name: Update CHANGELOG.md in repository
+      - name: Commit and push CHANGELOG.md
+        if: steps.version.outputs.changelog_branch != ''
         run: |
+          CHANGELOG_BRANCH="${{ steps.version.outputs.changelog_branch }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add CHANGELOG.md || true
-          git commit -m "chore: update CHANGELOG.md for ${{ steps.version.outputs.version }}" || exit 0
-          git push || exit 0
+
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to CHANGELOG.md, skipping commit"
+            exit 0
+          fi
+
+          git commit -m "chore: update CHANGELOG.md for $VERSION" || exit 0
+          git push origin $CHANGELOG_BRANCH || exit 0
+
+      - name: Create Pull Request
+        if: steps.version.outputs.changelog_branch != '' && github.event_name != 'workflow_dispatch'
+        run: |
+          CHANGELOG_BRANCH="${{ steps.version.outputs.changelog_branch }}"
+          VERSION="${{ steps.version.outputs.version }}"
+
+          # Get default branch (main or master)
+          DEFAULT_BRANCH=$(git remote show origin | grep "HEAD branch" | cut -d' ' -f5 || echo "main")
+
+          # Check if PR already exists
+          if gh pr list --head $CHANGELOG_BRANCH --base $DEFAULT_BRANCH --json number --jq 'length' | grep -q '^[1-9]'; then
+            echo "PR already exists for branch $CHANGELOG_BRANCH"
+            exit 0
+          fi
+
+          # Create PR body with escaped newlines
+          PR_BODY=$(printf "This PR updates the CHANGELOG.md for release %s.\n\nThe changelog was automatically generated using git-cliff from the tag commit.\n\nReview and merge if you want the changelog to be updated in the main branch." "$VERSION")
+
+          gh pr create \
+            --base $DEFAULT_BRANCH \
+            --head $CHANGELOG_BRANCH \
+            --title "chore: update CHANGELOG.md for $VERSION" \
+            --body "$PR_BODY" || exit 0
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
