@@ -78,6 +78,9 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
 
         // Handle input
         if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             // Check for Ctrl+C - exit immediately
             if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
                 terminal::disable_raw_mode()?;
@@ -180,13 +183,14 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
     Ok(secrets)
 }
 
-enum InputMode {
+#[derive(Debug, Clone, PartialEq)]
+pub enum InputMode {
     Key,
     Value,
 }
 
 /// Render the secret input UI using ratatui.
-fn render_secret_input_ui(
+pub fn render_secret_input_ui(
     f: &mut Frame,
     secrets: &[SecretPair],
     current_key: &str,
@@ -437,6 +441,9 @@ fn confirm_exit_ratatui(
         })?;
 
         if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             // Check for Ctrl+C - exit immediately
             if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
                 terminal::disable_raw_mode()?;
@@ -632,6 +639,9 @@ pub fn select_repositories(
 
         // Handle input
         if let Event::Key(key) = event::read()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
             // Check for Ctrl+C - exit immediately
             if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
                 terminal::disable_raw_mode()?;
@@ -739,7 +749,7 @@ pub fn select_repositories(
 }
 
 /// Render the selection UI using ratatui.
-fn render_selection_ui(
+pub fn render_selection_ui(
     f: &mut Frame,
     repositories: &[crate::config::Repository],
     selected: &[bool],

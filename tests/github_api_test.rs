@@ -161,6 +161,33 @@ async fn test_rate_limiter() {
     }
 }
 
+#[tokio::test]
+async fn test_rate_limiter_waits_when_limit_exceeded() {
+    use github_secrets::rate_limit::RateLimiter;
+    use std::time::{Duration, Instant};
+
+    // Create a limiter that allows only 2 requests per 2 seconds
+    let mut limiter = RateLimiter::with_limits(2, 1, 2);
+
+    let start = Instant::now();
+
+    // First request - immediate
+    limiter.wait_if_needed().await;
+    limiter.release();
+
+    // Second request - immediate
+    limiter.wait_if_needed().await;
+    limiter.release();
+
+    // Third request - should wait until the window clears (approx 2 seconds from start)
+    limiter.wait_if_needed().await;
+    limiter.release();
+
+    let elapsed = start.elapsed();
+    // Should take at least 2 seconds (minus a small margin for execution time)
+    assert!(elapsed >= Duration::from_millis(1900));
+}
+
 /// Test config validation with invalid repositories.
 #[test]
 fn test_config_validation_invalid_repositories() {

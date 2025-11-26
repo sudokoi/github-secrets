@@ -30,6 +30,21 @@ impl RateLimiter {
         }
     }
 
+    /// Create a new rate limiter with custom limits (useful for testing).
+    pub fn with_limits(
+        max_requests_per_hour: u32,
+        max_concurrent: usize,
+        window_secs: u64,
+    ) -> Self {
+        Self {
+            max_requests_per_hour,
+            window: Duration::from_secs(window_secs),
+            request_times: Vec::new(),
+            max_concurrent,
+            current_concurrent: 0,
+        }
+    }
+
     /// Wait if necessary to respect rate limits before making a request.
     ///
     /// This method:

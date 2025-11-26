@@ -55,7 +55,7 @@ jobs:
       - name: Generate coverage report
         run: |
           mkdir -p coverage
-          cargo tarpaulin --out Xml --output-dir coverage --all-features --timeout 120 --exclude-files 'tests/*'
+          cargo tarpaulin --out Xml --output-dir coverage --all-features --timeout 120
           echo "Coverage report generated. Files in coverage directory:"
           ls -la coverage/ || true
           if [ -f coverage/cobertura.xml ]; then

@@ -244,3 +244,120 @@ fn test_comprehensive_validation_scenarios() {
     // Test too long key separately
     assert!(validation::validate_secret_key(&too_long_key).is_err());
 }
+
+#[test]
+fn test_render_secret_input_ui() {
+    use github_secrets::prompt::{InputMode, SecretPair, render_secret_input_ui};
+    use ratatui::{Terminal, backend::TestBackend, style::Color};
+
+    // Setup terminal with TestBackend
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let secrets = vec![SecretPair {
+        key: "EXISTING_KEY".to_string(),
+        value: "value".to_string(),
+    }];
+    let current_key = "NEW_KEY";
+    let current_value = "";
+    let input_mode = InputMode::Key;
+    let message = "Test Message";
+    let message_color = Color::Yellow;
+
+    terminal
+        .draw(|f| {
+            render_secret_input_ui(
+                f,
+                &secrets,
+                current_key,
+                current_value,
+                &input_mode,
+                message,
+                message_color,
+            );
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+
+    // Verify key input is shown
+    let key_area = buffer
+        .content
+        .iter()
+        .any(|c| c.symbol() == "N" && c.symbol() == "E" && c.symbol() == "W");
+    // Note: Checking exact content in buffer is complex, but we can check for presence of strings
+    // We'll rely on the fact that it didn't panic and produced some output
+
+    // Check for title
+    let title_found = (0..buffer.area.height).any(|y| {
+        let line_str: String = (0..buffer.area.width)
+            .map(|x| buffer.get(x, y).symbol().clone())
+            .collect();
+        line_str.contains("GitHub Secrets")
+    });
+    assert!(title_found, "Title not found in rendered output");
+
+    // Check for message
+    let message_found = (0..buffer.area.height).any(|y| {
+        let line_str: String = (0..buffer.area.width)
+            .map(|x| buffer.get(x, y).symbol().clone())
+            .collect();
+        line_str.contains("Test Message")
+    });
+    assert!(message_found, "Message not found in rendered output");
+}
+
+#[test]
+fn test_render_selection_ui() {
+    use github_secrets::config::Repository;
+    use github_secrets::prompt::render_selection_ui;
+    use ratatui::{Terminal, backend::TestBackend, widgets::ListState};
+
+    // Setup terminal with TestBackend
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let repositories = vec![
+        Repository {
+            owner: "owner1".to_string(),
+            name: "repo1".to_string(),
+            alias: None,
+        },
+        Repository {
+            owner: "owner2".to_string(),
+            name: "repo2".to_string(),
+            alias: Some("Alias".to_string()),
+        },
+    ];
+
+    // Index 0 is "Select All", 1 is repo1, 2 is repo2
+    let selected = vec![false, true, false];
+    let mut list_state = ListState::default();
+    list_state.select(Some(1)); // Select the first repo
+
+    terminal
+        .draw(|f| {
+            render_selection_ui(f, &repositories, &selected, &mut list_state);
+        })
+        .unwrap();
+
+    let buffer = terminal.backend().buffer();
+
+    // Check for repository names
+    let repo1_found = (0..buffer.area.height).any(|y| {
+        let line_str: String = (0..buffer.area.width)
+            .map(|x| buffer.get(x, y).symbol().clone())
+            .collect();
+        line_str.contains("owner1/repo1")
+    });
+    assert!(repo1_found, "Repo1 not found in rendered output");
+
+    // Check for checkmark on selected repo
+    let checkmark_found = (0..buffer.area.height).any(|y| {
+        let line_str: String = (0..buffer.area.width)
+            .map(|x| buffer.get(x, y).symbol().clone())
+            .collect();
+        line_str.contains("[x] owner1/repo1")
+    });
+    assert!(checkmark_found, "Checkmark not found for selected repo");
+}

@@ -65,10 +65,10 @@ impl Config {
         let mut config: Config = toml::from_str(&content).context("Failed to parse config file")?;
 
         // Convert single repository to repositories list if present
-        if let Some(repo) = config.repository.take()
-            && config.repositories.is_empty()
-        {
-            config.repositories.push(repo);
+        if config.repositories.is_empty() {
+            if let Some(repo) = config.repository.take() {
+                config.repositories.push(repo);
+            }
         }
 
         if config.repositories.is_empty() {
