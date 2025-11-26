@@ -405,7 +405,6 @@ pub fn render_secret_input_ui(
 /// Confirm exit using ratatui.
 // `confirm_exit_ratatui` removed; tests and interactive flows use the injected
 // `confirm_exit_ratatui_with` variant which accepts an `EventSource`.
-
 /// Confirm exit using ratatui with an injected event source (for tests).
 pub fn confirm_exit_ratatui_with<B: Backend, E: EventSource>(
     terminal: &mut Terminal<B>,

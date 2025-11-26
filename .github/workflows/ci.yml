@@ -41,6 +41,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Check for security vulnerabilities
+        run: |
+          if command -v cargo-audit &> /dev/null; then
+            cargo audit
+          else
+            echo "cargo-audit not installed, skipping security check"
+          fi
+
       - name: Build
         run: cargo build --verbose
 
@@ -76,20 +90,6 @@ jobs:
           fail_ci_if_error: false
           verbose: true
           token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy -- -D warnings
-
-      - name: Check for security vulnerabilities
-        run: |
-          if command -v cargo-audit &> /dev/null; then
-            cargo audit
-          else
-            echo "cargo-audit not installed, skipping security check"
-          fi
 
   build-check:
     name: Build Check
