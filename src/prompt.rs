@@ -513,7 +513,7 @@ fn read_single_char() -> anyhow::Result<char> {
 }
 
 /// Format ISO 8601 date string to human-readable format.
-fn format_date(date_str: &str) -> String {
+pub fn format_date(date_str: &str) -> String {
     if let Ok(dt) = DateTime::parse_from_rfc3339(date_str) {
         let now = Utc::now();
         let duration = now.signed_duration_since(dt.with_timezone(&Utc));

@@ -26,7 +26,9 @@ fn test_validate_token_valid_classic() {
 #[test]
 fn test_validate_token_valid_fine_grained() {
     // Fine-grained token format: github_pat_...
-    let result = validate_token("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    let result = validate_token(
+        "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    );
     assert!(result.is_ok());
 }
 
@@ -35,7 +37,12 @@ fn test_validate_secret_key_unicode_characters() {
     let result = validate_secret_key("SECRET_KEY_日本語");
     assert!(result.is_err());
     let error = result.unwrap_err().to_string();
-    assert!(error.contains("letters") || error.contains("numbers") || error.contains("underscores") || error.contains("hyphens"));
+    assert!(
+        error.contains("letters")
+            || error.contains("numbers")
+            || error.contains("underscores")
+            || error.contains("hyphens")
+    );
 }
 
 #[test]
