@@ -19,6 +19,7 @@
 //! - [`errors`] - Structured error types
 //! - [`constants`] - Application constants
 
+pub mod app;
 pub mod config;
 pub mod constants;
 pub mod error;

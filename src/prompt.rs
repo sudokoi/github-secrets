@@ -2,10 +2,6 @@
 //!
 //! This module provides a ratatui-based TUI for:
 //! - Entering secret key-value pairs interactively
-//! - Selecting repositories from a list
-//! - Confirming secret updates
-//! - Handling user input with proper terminal state management
-
 use chrono::{DateTime, Utc};
 use colored::*;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -13,7 +9,7 @@ use crossterm::execute;
 use crossterm::terminal::{self, Clear, ClearType};
 use ratatui::{
     Frame, Terminal,
-    backend::CrosstermBackend,
+    backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
@@ -29,25 +25,15 @@ pub struct SecretPair {
     /// The secret value.
     pub value: String,
 }
-
-/// Prompt the user to enter secret key-value pairs interactively.
-///
-/// This function displays a TUI where users can enter multiple secret pairs.
-/// The input switches between key and value entry modes. Users can press ESC
-/// to finish entering secrets.
-///
-/// # Returns
-///
-/// Returns a vector of `SecretPair` containing all entered secrets, or an error
-/// if the terminal setup fails or the user cancels the operation.
-///
-/// # Errors
-///
-/// This function will return an error if:
-/// - Terminal raw mode cannot be enabled
-/// - Terminal operations fail
-/// - The user presses Ctrl+C (exits immediately)
 pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
+    // Real event source that delegates to `crossterm::event::read`
+    struct CrosstermEventSource;
+    impl EventSource for CrosstermEventSource {
+        fn read_event(&mut self) -> anyhow::Result<Event> {
+            Ok(event::read()?)
+        }
+    }
+
     // Setup terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -56,6 +42,26 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    let mut event_src = CrosstermEventSource;
+    let res = prompt_secrets_with(&mut terminal, &mut event_src);
+
+    // Restore terminal in all cases
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
+    res
+}
+
+/// Trait representing an event source (so tests can inject fake events).
+pub trait EventSource {
+    fn read_event(&mut self) -> anyhow::Result<Event>;
+}
+
+/// Prompt the user to enter secret key-value pairs using an injected event source.
+pub fn prompt_secrets_with<B: Backend, E: EventSource>(
+    terminal: &mut Terminal<B>,
+    events: &mut E,
+) -> anyhow::Result<Vec<SecretPair>> {
     let mut secrets = Vec::new();
     let mut current_key = String::new();
     let mut current_value = String::new();
@@ -77,7 +83,7 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
         })?;
 
         // Handle input
-        if let Event::Key(key) = event::read()? {
+        if let Event::Key(key) = events.read_event()? {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -105,7 +111,7 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
                         KeyCode::Esc => {
                             if !current_key.is_empty() || !secrets.is_empty() {
                                 // Ask for confirmation
-                                if confirm_exit_ratatui(&mut terminal)? {
+                                if confirm_exit_ratatui_with(terminal, events)? {
                                     break;
                                 }
                             } else {
@@ -175,10 +181,6 @@ pub fn prompt_secrets() -> anyhow::Result<Vec<SecretPair>> {
             }
         }
     }
-
-    // Restore terminal
-    terminal::disable_raw_mode()?;
-    drop(terminal);
 
     Ok(secrets)
 }
@@ -401,8 +403,13 @@ pub fn render_secret_input_ui(
 }
 
 /// Confirm exit using ratatui.
-fn confirm_exit_ratatui(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+// `confirm_exit_ratatui` removed; tests and interactive flows use the injected
+// `confirm_exit_ratatui_with` variant which accepts an `EventSource`.
+
+/// Confirm exit using ratatui with an injected event source (for tests).
+pub fn confirm_exit_ratatui_with<B: Backend, E: EventSource>(
+    terminal: &mut Terminal<B>,
+    events: &mut E,
 ) -> anyhow::Result<bool> {
     let mut cursor_pos = 0; // 0 = Yes, 1 = No
 
@@ -440,7 +447,7 @@ fn confirm_exit_ratatui(
             frame.render_widget(list, chunks[0]);
         })?;
 
-        if let Event::Key(key) = event::read()? {
+        if let Event::Key(key) = events.read_event()? {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
