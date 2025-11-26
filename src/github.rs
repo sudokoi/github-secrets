@@ -61,6 +61,16 @@ impl GitHubClient {
         })
     }
 
+    /// Create a client using an existing `Octocrab` instance. Useful for testing with
+    /// custom base URLs (e.g., wiremock).
+    pub fn with_octocrab(octocrab: Octocrab, owner: String, repo: String) -> Self {
+        Self {
+            octocrab,
+            owner,
+            repo,
+        }
+    }
+
     async fn get_public_key(&self) -> Result<PublicKey> {
         let path = format!(
             "/repos/{}/{}/actions/secrets/public-key",

@@ -281,17 +281,12 @@ fn test_render_secret_input_ui() {
     let buffer = terminal.backend().buffer();
 
     // Verify key input is shown
-    let key_area = buffer
-        .content
-        .iter()
-        .any(|c| c.symbol() == "N" && c.symbol() == "E" && c.symbol() == "W");
-    // Note: Checking exact content in buffer is complex, but we can check for presence of strings
-    // We'll rely on the fact that it didn't panic and produced some output
+    // Note: Checking exact content in buffer is complex; rely on no panic and some output
 
     // Check for title
     let title_found = (0..buffer.area.height).any(|y| {
         let line_str: String = (0..buffer.area.width)
-            .map(|x| buffer.get(x, y).symbol().clone())
+            .map(|x| buffer.get(x, y).symbol())
             .collect();
         line_str.contains("GitHub Secrets")
     });
@@ -300,7 +295,7 @@ fn test_render_secret_input_ui() {
     // Check for message
     let message_found = (0..buffer.area.height).any(|y| {
         let line_str: String = (0..buffer.area.width)
-            .map(|x| buffer.get(x, y).symbol().clone())
+            .map(|x| buffer.get(x, y).symbol())
             .collect();
         line_str.contains("Test Message")
     });
@@ -346,7 +341,7 @@ fn test_render_selection_ui() {
     // Check for repository names
     let repo1_found = (0..buffer.area.height).any(|y| {
         let line_str: String = (0..buffer.area.width)
-            .map(|x| buffer.get(x, y).symbol().clone())
+            .map(|x| buffer.get(x, y).symbol())
             .collect();
         line_str.contains("owner1/repo1")
     });
@@ -355,7 +350,7 @@ fn test_render_selection_ui() {
     // Check for checkmark on selected repo
     let checkmark_found = (0..buffer.area.height).any(|y| {
         let line_str: String = (0..buffer.area.width)
-            .map(|x| buffer.get(x, y).symbol().clone())
+            .map(|x| buffer.get(x, y).symbol())
             .collect();
         line_str.contains("[x] owner1/repo1")
     });
