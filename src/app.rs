@@ -3,12 +3,14 @@ use colored::*;
 use std::env;
 use std::sync::Arc;
 
+use crate::app_deps::{
+    GitHubApiFactory, PromptInterface, RateLimiterInterface, RealGitHubApiFactory, RealPrompt,
+    RealRateLimiter,
+};
 use crate::config;
 use crate::error;
-use crate::github;
 use crate::paths;
 use crate::prompt;
-use crate::rate_limit;
 use crate::validation;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -93,11 +95,35 @@ impl App {
         )
         .with_context(|| format!("Failed to load config from {}", config_path.display()))?;
 
-        let repositories = config.get_repositories();
-        let selected_indices =
-            prompt::select_repositories(repositories).context("Failed to select repositories")?;
+        // Initialize real adapters and delegate to injectable runner
+        let factory = RealGitHubApiFactory;
+        let prompt_impl = RealPrompt;
+        let mut rate_limiter = RealRateLimiter::new();
 
-        let secrets = prompt::prompt_secrets().context("Failed to read secrets from user")?;
+        Self::run_with_deps(&factory, &prompt_impl, &mut rate_limiter, token, config).await
+    }
+
+    /// Same logic as `run` but with injectable dependencies to enable testing.
+    pub async fn run_with_deps<F, P, RL>(
+        factory: &F,
+        prompt_impl: &P,
+        rate_limiter: &mut RL,
+        token: Arc<String>,
+        config: config::Config,
+    ) -> Result<()>
+    where
+        F: GitHubApiFactory + Sync,
+        P: PromptInterface + Sync,
+        RL: RateLimiterInterface + Send,
+    {
+        let repositories = config.get_repositories();
+        let selected_indices = prompt_impl
+            .select_repositories(repositories)
+            .context("Failed to select repositories")?;
+
+        let secrets = prompt_impl
+            .prompt_secrets()
+            .context("Failed to read secrets from user")?;
 
         if secrets.is_empty() {
             println!("{}", "No secrets to update.".yellow());
@@ -116,9 +142,6 @@ impl App {
         let mut all_results = Vec::new();
         let mut all_failed_secrets: Vec<(usize, prompt::SecretPair)> = Vec::new();
 
-        // Initialize rate limiter to respect GitHub API limits
-        let mut rate_limiter = rate_limit::RateLimiter::new();
-
         for &repo_index in &selected_indices {
             let selected_repo = &repositories[repo_index];
             let repo_display = selected_repo.display_name();
@@ -131,12 +154,11 @@ impl App {
             );
             println!("{}", "=".repeat(60).bright_black());
 
-            let github_client = github::GitHubClient::new(
+            let github_client = factory.create(
                 token.as_ref().clone(),
                 selected_repo.owner.clone(),
                 selected_repo.name.clone(),
-            )
-            .context("Failed to initialize GitHub client")?;
+            )?;
 
             for secret in &secrets {
                 // Wait for rate limit before making API call
@@ -151,7 +173,7 @@ impl App {
 
                 if let Some(info) = &secret_info {
                     let last_updated = info.updated_at.as_deref();
-                    if !prompt::confirm_secret_update(&secret.key, last_updated)? {
+                    if !prompt_impl.confirm_secret_update(&secret.key, last_updated)? {
                         println!(
                             "{} {} {} {}",
                             "⊘".yellow(),
@@ -286,19 +308,18 @@ impl App {
                 }
             }
 
-            if prompt::confirm_retry()? {
+            if prompt_impl.confirm_retry()? {
                 println!("\n{}", "Retrying failed operations...\n".yellow());
 
                 for (repo_index, secret) in &all_failed_secrets {
                     let repo = &repositories[*repo_index];
                     let repo_display = repo.display_name();
 
-                    let github_client = github::GitHubClient::new(
+                    let github_client = factory.create(
                         token.as_ref().clone(),
                         repo.owner.clone(),
                         repo.name.clone(),
-                    )
-                    .context("Failed to initialize GitHub client")?;
+                    )?;
 
                     match github_client
                         .update_secret(&secret.key, &secret.value)

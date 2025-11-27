@@ -20,6 +20,7 @@
 //! - [`constants`] - Application constants
 
 pub mod app;
+pub mod app_deps;
 pub mod config;
 pub mod constants;
 pub mod error;
