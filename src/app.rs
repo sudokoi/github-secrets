@@ -11,7 +11,7 @@ use crate::prompt;
 use crate::rate_limit;
 use crate::validation;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UpdateResult {
     pub secret_name: String,
     pub repository: String,
@@ -19,9 +19,59 @@ pub struct UpdateResult {
     pub error: Option<String>,
 }
 
+impl UpdateResult {
+    pub fn new_success(secret_name: String, repository: String) -> Self {
+        Self {
+            secret_name,
+            repository,
+            success: true,
+            error: None,
+        }
+    }
+
+    pub fn new_failure(secret_name: String, repository: String, error: String) -> Self {
+        Self {
+            secret_name,
+            repository,
+            success: false,
+            error: Some(error),
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.success
+    }
+
+    pub fn is_failure(&self) -> bool {
+        !self.success
+    }
+}
+
 pub struct App;
 
 impl App {
+    /// Count successful and failed results
+    pub fn count_results(results: &[UpdateResult]) -> (usize, usize) {
+        let success_count = results.iter().filter(|r| r.is_success()).count();
+        let failure_count = results.len() - success_count;
+        (success_count, failure_count)
+    }
+
+    /// Aggregate results by repository
+    pub fn aggregate_by_repository(
+        results: &[UpdateResult],
+    ) -> std::collections::HashMap<String, Vec<&UpdateResult>> {
+        use std::collections::HashMap;
+        let mut repo_results: HashMap<String, Vec<&UpdateResult>> = HashMap::new();
+        for result in results {
+            repo_results
+                .entry(result.repository.clone())
+                .or_default()
+                .push(result);
+        }
+        repo_results
+    }
+
     pub async fn run() -> Result<()> {
         // Load .env file from XDG config directory or current directory
         paths::load_env_file();
@@ -180,8 +230,7 @@ impl App {
         println!("{}", "Overall Summary".bright_cyan().bold());
         println!("{}", "=".repeat(60).bright_black());
 
-        let success_count = all_results.iter().filter(|r| r.success).count();
-        let failure_count = all_results.len() - success_count;
+        let (success_count, failure_count) = Self::count_results(&all_results);
 
         println!(
             "{} {}",
@@ -200,14 +249,7 @@ impl App {
         );
 
         // Aggregate results by repository for breakdown
-        use std::collections::HashMap;
-        let mut repo_results: HashMap<String, Vec<&UpdateResult>> = HashMap::new();
-        for result in &all_results {
-            repo_results
-                .entry(result.repository.clone())
-                .or_default()
-                .push(result);
-        }
+        let repo_results = Self::aggregate_by_repository(&all_results);
 
         println!("\n{}", "Per-repository breakdown:".cyan());
         for (repo, results) in &repo_results {
@@ -300,8 +342,7 @@ impl App {
                     }
                 }
 
-                let final_success = all_results.iter().filter(|r| r.success).count();
-                let final_failure = all_results.len() - final_success;
+                let (final_success, final_failure) = Self::count_results(&all_results);
 
                 println!("\n{}", "=".repeat(60).bright_black());
                 println!("{}", "Final Summary".bright_cyan().bold());

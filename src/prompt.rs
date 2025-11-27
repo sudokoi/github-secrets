@@ -625,6 +625,14 @@ pub fn select_repositories(
         return Ok(vec![0]);
     }
 
+    // Real event source  that delegates to `crossterm::event::read`
+    struct CrosstermEventSource;
+    impl EventSource for CrosstermEventSource {
+        fn read_event(&mut self) -> anyhow::Result<Event> {
+            Ok(event::read()?)
+        }
+    }
+
     // Setup terminal
     terminal::enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -633,6 +641,22 @@ pub fn select_repositories(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    let mut event_src = CrosstermEventSource;
+    let res = select_repositories_with(&mut terminal, &mut event_src, repositories);
+
+    // Restore terminal in all cases
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
+    res
+}
+
+/// Select repositories with dependency injection for testing.
+pub fn select_repositories_with<B: Backend, E: EventSource>(
+    terminal: &mut Terminal<B>,
+    events: &mut E,
+    repositories: &[crate::config::Repository],
+) -> anyhow::Result<Vec<usize>> {
     // State: index 0 is "Select All", indices 1.. are repositories
     let mut selected = vec![false; repositories.len() + 1];
     let mut list_state = ListState::default();
@@ -644,7 +668,7 @@ pub fn select_repositories(
         })?;
 
         // Handle input
-        if let Event::Key(key) = event::read()? {
+        if let Event::Key(key) = events.read_event()? {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -693,17 +717,12 @@ pub fn select_repositories(
                     break;
                 }
                 KeyCode::Esc => {
-                    terminal::disable_raw_mode()?;
                     anyhow::bail!("Selection cancelled");
                 }
                 _ => {}
             }
         }
     }
-
-    // Restore terminal
-    terminal::disable_raw_mode()?;
-    drop(terminal);
 
     // Collect selected repository indices (excluding "Select All" at index 0)
     let selected_indices: Vec<usize> = (1..selected.len())
@@ -715,42 +734,6 @@ pub fn select_repositories(
         anyhow::bail!("No repositories selected");
     }
 
-    // Display selection summary
-    if selected[0] || selected_indices.len() == repositories.len() {
-        println!(
-            "\n{} {} {}:\n",
-            "✓".green(),
-            format!("Selected all {} repositories", selected_indices.len()).green(),
-            "✓".green()
-        );
-        for &idx in &selected_indices {
-            println!(
-                "  {} {}",
-                "•".green(),
-                repositories[idx].display_name().bright_green()
-            );
-        }
-    } else {
-        println!(
-            "\n{} {} {}:\n",
-            "✓".green(),
-            format!(
-                "Selected {} repository/repositories",
-                selected_indices.len()
-            )
-            .green(),
-            "✓".green()
-        );
-        for &idx in &selected_indices {
-            println!(
-                "  {} {}",
-                "•".green(),
-                repositories[idx].display_name().bright_green()
-            );
-        }
-    }
-
-    println!();
     Ok(selected_indices)
 }
 
