@@ -70,15 +70,14 @@ pub trait RateLimiterInterface: Send + Sync {
     fn release(&mut self);
 }
 
+#[derive(Default)]
 pub struct RealRateLimiter {
     inner: rate_limit::RateLimiter,
 }
 
 impl RealRateLimiter {
     pub fn new() -> Self {
-        Self {
-            inner: rate_limit::RateLimiter::new(),
-        }
+        Self::default()
     }
 }
 

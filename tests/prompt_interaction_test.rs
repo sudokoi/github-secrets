@@ -51,26 +51,24 @@ fn test_prompt_secrets_interaction_flow() {
     // 3. Esc (to finish)
     // 4. "y" (confirm exit)
 
-    let mut events = Vec::new();
-
-    // Type "KEY1"
-    events.push(char_event('K'));
-    events.push(char_event('E'));
-    events.push(char_event('Y'));
-    events.push(char_event('1'));
-    events.push(key_event(KeyCode::Enter));
-
-    // Type "VAL1"
-    events.push(char_event('V'));
-    events.push(char_event('A'));
-    events.push(char_event('L'));
-    events.push(char_event('1'));
-    events.push(key_event(KeyCode::Enter));
-
-    // Finish
-    events.push(key_event(KeyCode::Esc));
-    // Confirm exit (y)
-    events.push(char_event('y'));
+    let events = vec![
+        // Type "KEY1"
+        char_event('K'),
+        char_event('E'),
+        char_event('Y'),
+        char_event('1'),
+        key_event(KeyCode::Enter),
+        // Type "VAL1"
+        char_event('V'),
+        char_event('A'),
+        char_event('L'),
+        char_event('1'),
+        key_event(KeyCode::Enter),
+        // Finish
+        key_event(KeyCode::Esc),
+        // Confirm exit (y)
+        char_event('y'),
+    ];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);
@@ -94,28 +92,25 @@ fn test_prompt_secrets_validation_error() {
     // 3. "VAL" -> Enter
     // 4. Esc -> y
 
-    let mut events = Vec::new();
-
-    // "KEY@"
-    events.push(char_event('K'));
-    events.push(char_event('E'));
-    events.push(char_event('Y'));
-    events.push(char_event('@'));
-    events.push(key_event(KeyCode::Enter)); // Should show error
-
-    // Fix it: Backspace
-    events.push(key_event(KeyCode::Backspace));
-    events.push(key_event(KeyCode::Enter)); // Now "KEY" is valid
-
-    // Value "VAL"
-    events.push(char_event('V'));
-    events.push(char_event('A'));
-    events.push(char_event('L'));
-    events.push(key_event(KeyCode::Enter));
-
-    // Finish
-    events.push(key_event(KeyCode::Esc));
-    events.push(char_event('y'));
+    let events = vec![
+        // "KEY@"
+        char_event('K'),
+        char_event('E'),
+        char_event('Y'),
+        char_event('@'),
+        key_event(KeyCode::Enter), // Should show error
+        // Fix it: Backspace
+        key_event(KeyCode::Backspace),
+        key_event(KeyCode::Enter), // Now "KEY" is valid
+        // Value "VAL"
+        char_event('V'),
+        char_event('A'),
+        char_event('L'),
+        key_event(KeyCode::Enter),
+        // Finish
+        key_event(KeyCode::Esc),
+        char_event('y'),
+    ];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);

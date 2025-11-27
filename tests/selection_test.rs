@@ -53,10 +53,7 @@ fn test_select_repositories_select_all() {
         },
     ];
 
-    let mut events = Vec::new();
-    // Space to select all, then Enter
-    events.push(key_event(KeyCode::Char(' ')));
-    events.push(key_event(KeyCode::Enter));
+    let events = vec![key_event(KeyCode::Char(' ')), key_event(KeyCode::Enter)];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);
@@ -90,13 +87,13 @@ fn test_select_repositories_select_subset() {
         },
     ];
 
-    let mut events = Vec::new();
-    // Down to repo1, Space to select, Down to repo2, Space to select, Enter
-    events.push(key_event(KeyCode::Down)); // Move to repo1
-    events.push(key_event(KeyCode::Char(' '))); // Select repo1
-    events.push(key_event(KeyCode::Down)); // Move to repo2
-    events.push(key_event(KeyCode::Char(' '))); // Select repo2
-    events.push(key_event(KeyCode::Enter)); // Confirm
+    let events = vec![
+        key_event(KeyCode::Down),      // Move to repo1
+        key_event(KeyCode::Char(' ')), // Select repo1
+        key_event(KeyCode::Down),      // Move to repo2
+        key_event(KeyCode::Char(' ')), // Select repo2
+        key_event(KeyCode::Enter),     // Confirm
+    ];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);
@@ -118,9 +115,9 @@ fn test_select_repositories_cancel() {
         alias: None,
     }];
 
-    let mut events = Vec::new();
-    // Esc to cancel
-    events.push(key_event(KeyCode::Esc));
+    let events = vec![
+        key_event(KeyCode::Esc), // Esc to cancel
+    ];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);
@@ -145,9 +142,9 @@ fn test_select_repositories_no_selection() {
         alias: None,
     }];
 
-    let mut events = Vec::new();
-    // Just Enter without selecting anything
-    events.push(key_event(KeyCode::Enter));
+    let events = vec![
+        key_event(KeyCode::Enter), // Just Enter without selecting anything
+    ];
 
     let mut event_source = MockEventSource::new(events);
     let backend = TestBackend::new(80, 24);

@@ -228,9 +228,7 @@ mod tests {
                         .join("github-secrets")
                         .join("config.toml");
                     let default_xdg_canonical = default_xdg_config.canonicalize().ok();
-                    default_xdg_canonical
-                        .as_ref()
-                        .map_or(false, |default| default == found_can)
+                    default_xdg_canonical.is_some_and(|default| default == *found_can)
                 } else {
                     false
                 }
