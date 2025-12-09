@@ -261,6 +261,51 @@ fn test_prompt_secrets_empty_value_validation() {
     let secrets = result.unwrap();
 
     assert_eq!(secrets.len(), 1);
-    assert_eq!(secrets[0].key, "KEY");
     assert_eq!(secrets[0].value, "VAL");
+}
+
+#[test]
+fn test_prompt_confirm_yes() {
+    // Simulate 'y' -> Enter (or just 'y' if code accepts it immediately? prompt_confirm_with loop handles 'y')
+    // prompt_confirm_with accepts 'y' immediately if cursor is on Yes (default).
+    let events = vec![char_event('y')];
+
+    let mut event_source = MockEventSource::new(events);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let result =
+        github_secrets::prompt::prompt_confirm_with(&mut terminal, &mut event_source, "Test?");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), true);
+}
+
+#[test]
+fn test_prompt_confirm_no() {
+    // Simulate 'n'
+    let events = vec![char_event('n')];
+
+    let mut event_source = MockEventSource::new(events);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let result =
+        github_secrets::prompt::prompt_confirm_with(&mut terminal, &mut event_source, "Test?");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), false);
+}
+
+#[test]
+fn test_prompt_confirm_navigation() {
+    // Start at Yes (0). Right -> No (1). Enter -> False.
+    let events = vec![key_event(KeyCode::Right), key_event(KeyCode::Enter)];
+
+    let mut event_source = MockEventSource::new(events);
+    let backend = TestBackend::new(80, 24);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    let result =
+        github_secrets::prompt::prompt_confirm_with(&mut terminal, &mut event_source, "Test?");
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), false);
 }

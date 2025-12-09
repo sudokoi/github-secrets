@@ -11,8 +11,8 @@ use std::path::PathBuf;
 /// Priority:
 /// 1. CONFIG_PATH from environment (if set)
 /// 2. Current directory/config.toml
-/// 3. ~/.config/github-secrets/config.toml (default XDG location)
-/// 4. XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
+/// 3. XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
+/// 4. ~/.config/github-secrets/config.toml (default XDG location)
 pub fn find_config_file() -> Result<PathBuf> {
     // Check if CONFIG_PATH is explicitly set (highest priority)
     if let Ok(config_path) = env::var("CONFIG_PATH") {
@@ -30,7 +30,17 @@ pub fn find_config_file() -> Result<PathBuf> {
         }
     }
 
-    // 2. Try default XDG location (~/.config/github-secrets/config.toml)
+    // 2. Try XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
+    if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
+        let xdg_config_path = PathBuf::from(xdg_config_home)
+            .join("github-secrets")
+            .join("config.toml");
+        if xdg_config_path.exists() {
+            return Ok(xdg_config_path);
+        }
+    }
+
+    // 3. Try default XDG location (~/.config/github-secrets/config.toml)
     if let Some(home) = dirs::home_dir() {
         let default_xdg_config = home
             .join(".config")
@@ -41,27 +51,33 @@ pub fn find_config_file() -> Result<PathBuf> {
         }
     }
 
-    // 3. Try XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
+    // If none exists, return default XDG path (will show error when trying to read)
+    Ok(get_config_creation_path())
+}
+
+/// Get the path where a new config file should be created.
+/// Priority:
+/// 1. XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
+/// 2. ~/.config/github-secrets/config.toml (default XDG location)
+/// 3. Current directory/config.toml (fallback)
+pub fn get_config_creation_path() -> PathBuf {
+    // 1. Try XDG_CONFIG_HOME/github-secrets/config.toml (if XDG_CONFIG_HOME is set)
     if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
-        let xdg_config_path = PathBuf::from(xdg_config_home)
+        return PathBuf::from(xdg_config_home)
             .join("github-secrets")
             .join("config.toml");
-        if xdg_config_path.exists() {
-            return Ok(xdg_config_path);
-        }
     }
 
-    // If none exists, return default XDG path (will show error when trying to read)
+    // 2. Try default XDG location (~/.config/github-secrets/config.toml)
     if let Some(home) = dirs::home_dir() {
-        Ok(home
+        return home
             .join(".config")
             .join("github-secrets")
-            .join("config.toml"))
-    } else if let Ok(current_dir) = env::current_dir() {
-        Ok(current_dir.join("config.toml"))
-    } else {
-        Ok(PathBuf::from("config.toml"))
+            .join("config.toml");
     }
+
+    // 3. Fallback to current directory
+    PathBuf::from("config.toml")
 }
 
 /// Find and load .env file.
@@ -419,6 +435,37 @@ mod tests {
             if let Some(dir) = original_dir {
                 let _ = env::set_current_dir(&dir);
             }
+        }
+    }
+
+    #[test]
+    fn test_get_config_creation_path_xdg_home_set() {
+        unsafe {
+            env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+        }
+
+        let path = get_config_creation_path();
+        assert_eq!(path, PathBuf::from("/tmp/xdg/github-secrets/config.toml"));
+
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+    }
+
+    #[test]
+    fn test_get_config_creation_path_default() {
+        unsafe {
+            env::remove_var("XDG_CONFIG_HOME");
+        }
+
+        let path = get_config_creation_path();
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(
+                path,
+                home.join(".config")
+                    .join("github-secrets")
+                    .join("config.toml")
+            );
         }
     }
 }

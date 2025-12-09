@@ -4,11 +4,11 @@
 //! that define GitHub repositories for secret management.
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::fs;
 
 /// Configuration file structure containing repository definitions.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
     /// List of repositories to manage secrets for.
     #[serde(default)]
@@ -19,7 +19,7 @@ pub struct Config {
 }
 
 /// Repository configuration with owner, name, and optional display alias.
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct Repository {
     /// GitHub username or organization name.
     pub owner: String,

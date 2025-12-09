@@ -103,6 +103,64 @@ impl App {
         Self::run_with_deps(&factory, &prompt_impl, &mut rate_limiter, token, config).await
     }
 
+    pub async fn config() -> Result<()> {
+        let _factory = RealGitHubApiFactory;
+        let prompt_impl = RealPrompt;
+        let _rate_limiter = RealRateLimiter::new();
+        // We don't need factory or rate limiter for config really, but we need prompt.
+
+        Self::config_with_deps(&prompt_impl).await
+    }
+
+    pub async fn config_with_deps<P>(prompt_impl: &P) -> Result<()>
+    where
+        P: PromptInterface,
+    {
+        // 1. Check if config exists or use creation path
+        let config_path = match paths::find_config_file() {
+            Ok(path) => path,
+            Err(_) => paths::get_config_creation_path(),
+        };
+
+        // 2. Load existing config or default to empty
+        let initial_config = if config_path.exists() {
+            match config::Config::from_file(config_path.to_str().unwrap()) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    println!("Warning: Failed to parse existing config: {}", e);
+                    // Ask user if they want to overwrite? Or just show empty?
+                    // For now, let's treat as empty/new to allow recovery via UI
+                    config::Config {
+                        repositories: vec![],
+                        repository: None,
+                    }
+                }
+            }
+        } else {
+            config::Config {
+                repositories: vec![],
+                repository: None,
+            }
+        };
+
+        // 3. Launch TUI Dashboard
+        if let Some(new_config) = prompt_impl.manage_config(initial_config)? {
+            // 4. Save if changed/requested
+            if let Some(parent) = config_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+
+            println!("Saving configuration to {}...", config_path.display());
+            let toml_string = toml::to_string(&new_config)?;
+            std::fs::write(&config_path, toml_string)?;
+            println!("{}", "Configuration saved successfully.".green());
+        } else {
+            println!("Configuration unchanged.");
+        }
+
+        Ok(())
+    }
+
     /// Same logic as `run` but with injectable dependencies to enable testing.
     pub async fn run_with_deps<F, P, RL>(
         factory: &F,

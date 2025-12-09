@@ -815,3 +815,516 @@ pub fn render_selection_ui(
         .alignment(Alignment::Center);
     f.render_widget(instructions, chunks[1]);
 }
+
+/// Generic prompt for confirmation (Yes/No).
+pub fn prompt_confirm(title: &str) -> anyhow::Result<bool> {
+    // Real event source
+    struct CrosstermEventSource;
+    impl EventSource for CrosstermEventSource {
+        fn read_event(&mut self) -> anyhow::Result<Event> {
+            Ok(event::read()?)
+        }
+    }
+
+    terminal::enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, Clear(ClearType::All))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut event_src = CrosstermEventSource;
+    let res = prompt_confirm_with(&mut terminal, &mut event_src, title);
+
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
+    res
+}
+
+/// Generic prompt for confirmation with injected event source.
+pub fn prompt_confirm_with<B: Backend, E: EventSource>(
+    terminal: &mut Terminal<B>,
+    events: &mut E,
+    title: &str,
+) -> anyhow::Result<bool> {
+    let mut cursor_pos = 0; // 0 = Yes, 1 = No
+
+    loop {
+        terminal.draw(|frame| {
+            let size = frame.size();
+            // Center the dialog
+            let _block = Block::default().borders(Borders::ALL).title(title);
+            let _area = centered_rect(60, 20, size); // Adjust size as needed, e.g. 60% width, 20% height
+            // OR fixed size if better
+
+            // Let's use a simpler layout similar to confirm_exit_ratatui_with
+            let chunks = Layout::default()
+                .constraints([Constraint::Length(3), Constraint::Length(1)])
+                .split(size);
+
+            let options = ["Yes", "No"];
+            let mut items = Vec::new();
+            for (i, opt) in options.iter().enumerate() {
+                let prefix = if cursor_pos == i { "> " } else { "  " };
+                let style = if cursor_pos == i {
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                items.push(ListItem::new(Span::styled(
+                    format!("{}{}", prefix, opt),
+                    style,
+                )));
+            }
+
+            let list = List::new(items)
+                .block(Block::default().borders(Borders::ALL).title(title))
+                .style(Style::default().fg(Color::Yellow));
+
+            // Render to chunks[0] like confirm_exit... or maybe center it?
+            // Existing `confirm_exit` renders to chunks[0] which is top 3 lines.
+            // Let's stick to that for consistency or improve both?
+            // User asked "implement... to use ratatui even for this flow".
+            // If I stick to `confirm_exit_ratatui_with` style, it's consistent.
+            frame.render_widget(list, chunks[0]);
+        })?;
+
+        if let Event::Key(key) = events.read_event()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+            if key.code == KeyCode::Char('c') && key.modifiers == KeyModifiers::CONTROL {
+                terminal::disable_raw_mode()?;
+                std::process::exit(0);
+            }
+
+            match key.code {
+                KeyCode::Left | KeyCode::Up => {
+                    cursor_pos = cursor_pos.saturating_sub(1);
+                }
+                KeyCode::Right | KeyCode::Down => {
+                    if cursor_pos < 1 {
+                        cursor_pos += 1;
+                    }
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter if cursor_pos == 0 => {
+                    return Ok(true);
+                }
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter => {
+                    return Ok(false);
+                }
+                KeyCode::Esc => {
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+/// Helper to center a rect
+fn centered_rect(
+    percent_x: u16,
+    percent_y: u16,
+    r: ratatui::layout::Rect,
+) -> ratatui::layout::Rect {
+    let popup_layout = Layout::default()
+        .direction(ratatui::layout::Direction::Vertical)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_y) / 2),
+                Constraint::Percentage(percent_y),
+                Constraint::Percentage((100 - percent_y) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(r);
+
+    Layout::default()
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints(
+            [
+                Constraint::Percentage((100 - percent_x) / 2),
+                Constraint::Percentage(percent_x),
+                Constraint::Percentage((100 - percent_x) / 2),
+            ]
+            .as_ref(),
+        )
+        .split(popup_layout[1])[1]
+}
+
+enum AppMode {
+    Browsing,
+    Input,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum InputField {
+    Owner,
+    Name,
+    Alias,
+}
+
+struct InputState {
+    owner: String,
+    name: String,
+    alias: String,
+    active_field: InputField,
+    is_edit: bool,
+    edit_index: Option<usize>,
+    error_msg: String,
+}
+
+impl InputState {
+    fn new_add() -> Self {
+        Self {
+            owner: String::new(),
+            name: String::new(),
+            alias: String::new(),
+            active_field: InputField::Owner,
+            is_edit: false,
+            edit_index: None,
+            error_msg: String::new(),
+        }
+    }
+
+    fn new_edit(repo: &crate::config::Repository, index: usize) -> Self {
+        Self {
+            owner: repo.owner.clone(),
+            name: repo.name.clone(),
+            alias: repo.alias.clone().unwrap_or_default(),
+            active_field: InputField::Owner,
+            is_edit: true,
+            edit_index: Some(index),
+            error_msg: String::new(),
+        }
+    }
+
+    fn validate_char(c: char, field: InputField) -> bool {
+        match field {
+            InputField::Owner | InputField::Name => {
+                c.is_ascii_alphanumeric() || c == '_' || c == '-'
+            }
+            InputField::Alias => true,
+        }
+    }
+}
+
+/// Manage configuration interactively.
+pub fn manage_config(
+    initial_config: crate::config::Config,
+) -> anyhow::Result<Option<crate::config::Config>> {
+    struct CrosstermEventSource;
+    impl EventSource for CrosstermEventSource {
+        fn read_event(&mut self) -> anyhow::Result<Event> {
+            Ok(event::read()?)
+        }
+    }
+
+    terminal::enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, Clear(ClearType::All))?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut event_src = CrosstermEventSource;
+    let res = manage_config_with(&mut terminal, &mut event_src, initial_config);
+
+    terminal::disable_raw_mode()?;
+    drop(terminal);
+
+    res
+}
+
+pub fn manage_config_with<B: Backend, E: EventSource>(
+    terminal: &mut Terminal<B>,
+    events: &mut E,
+    mut config: crate::config::Config,
+) -> anyhow::Result<Option<crate::config::Config>> {
+    let mut list_state = ListState::default();
+    if !config.repositories.is_empty() {
+        list_state.select(Some(0));
+    }
+
+    let mut app_mode = AppMode::Browsing;
+    let mut input_state = InputState::new_add();
+
+    loop {
+        terminal.draw(|f| {
+            let size = f.size();
+
+            // 1. Always render the list as background
+            let chunks = Layout::default()
+                .constraints([Constraint::Min(3), Constraint::Length(3)])
+                .split(size);
+
+            let items: Vec<ListItem> = if config.repositories.is_empty() {
+                vec![
+                    ListItem::new("No repositories configured. Press 'a' to add one.")
+                        .style(Style::default().fg(Color::DarkGray)),
+                ]
+            } else {
+                config
+                    .repositories
+                    .iter()
+                    .map(|r| {
+                        let text = if let Some(alias) = &r.alias {
+                            format!("{} ({}/{})", alias, r.owner, r.name)
+                        } else {
+                            format!("{}/{}", r.owner, r.name)
+                        };
+                        ListItem::new(text)
+                    })
+                    .collect()
+            };
+
+            let list = List::new(items)
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Configuration"),
+                )
+                .highlight_style(Style::default().bg(Color::White).fg(Color::Black))
+                .highlight_symbol(">> ");
+
+            f.render_stateful_widget(list, chunks[0], &mut list_state);
+
+            let instruction_text = match app_mode {
+                AppMode::Browsing => {
+                    "↑/↓: Navigate | a: Add | e/Enter: Edit | d: Delete | q/Esc: Save & Quit"
+                }
+                AppMode::Input => {
+                    "Tab: Next Field | Enter: Save | Esc: Cancel | Input: a-z, 0-9, _, -"
+                }
+            };
+            let instructions = Paragraph::new(instruction_text)
+                .block(Block::default().borders(Borders::ALL).title("Instructions"))
+                .style(Style::default().fg(Color::Yellow));
+            f.render_widget(instructions, chunks[1]);
+
+            // 2. If in Input mode, render the dialog overlay
+            if let AppMode::Input = app_mode {
+                let area = centered_rect(60, 50, size);
+                f.render_widget(ratatui::widgets::Clear, area); // Clear background under dialog
+
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .title(if input_state.is_edit {
+                        "Edit Repository"
+                    } else {
+                        "Add Repository"
+                    })
+                    .style(Style::default().bg(Color::DarkGray)); // Optional bg color
+                f.render_widget(block, area);
+
+                let input_chunks = Layout::default()
+                    .constraints(
+                        [
+                            Constraint::Length(3), // Owner
+                            Constraint::Length(3), // Name
+                            Constraint::Length(3), // Alias
+                            Constraint::Length(1), // Error/Message
+                        ]
+                        .as_ref(),
+                    )
+                    .margin(1)
+                    .split(area);
+
+                // Helper to render input fields
+                let mut render_field =
+                    |title: &str, value: &str, field: InputField, chunk_idx: usize| {
+                        let is_active = input_state.active_field == field;
+                        let style = if is_active {
+                            Style::default().fg(Color::Cyan)
+                        } else {
+                            Style::default()
+                        };
+                        let block = Block::default().borders(Borders::ALL).title(title);
+                        f.render_widget(
+                            Paragraph::new(value).block(block).style(style),
+                            input_chunks[chunk_idx],
+                        );
+                    };
+
+                render_field(
+                    "Owner (a-z, 0-9, _, -)",
+                    &input_state.owner,
+                    InputField::Owner,
+                    0,
+                );
+                render_field(
+                    "Repository Name (a-z, 0-9, _, -)",
+                    &input_state.name,
+                    InputField::Name,
+                    1,
+                );
+                render_field(
+                    "Alias (Optional, any char)",
+                    &input_state.alias,
+                    InputField::Alias,
+                    2,
+                );
+
+                f.render_widget(
+                    Paragraph::new(input_state.error_msg.as_str())
+                        .style(Style::default().fg(Color::Red)),
+                    input_chunks[3],
+                );
+            }
+        })?;
+
+        if let Event::Key(key) = events.read_event()? {
+            if key.kind != KeyEventKind::Press {
+                continue;
+            }
+
+            match app_mode {
+                AppMode::Browsing => {
+                    match key.code {
+                        KeyCode::Char('q') | KeyCode::Esc => return Ok(Some(config)),
+                        KeyCode::Up => {
+                            if !config.repositories.is_empty() {
+                                let i = match list_state.selected() {
+                                    Some(i) => {
+                                        if i == 0 {
+                                            config.repositories.len() - 1
+                                        } else {
+                                            i - 1
+                                        }
+                                    }
+                                    None => 0,
+                                };
+                                list_state.select(Some(i));
+                            }
+                        }
+                        KeyCode::Down => {
+                            if !config.repositories.is_empty() {
+                                let i = match list_state.selected() {
+                                    Some(i) => {
+                                        if i >= config.repositories.len() - 1 {
+                                            0
+                                        } else {
+                                            i + 1
+                                        }
+                                    }
+                                    None => 0,
+                                };
+                                list_state.select(Some(i));
+                            }
+                        }
+                        KeyCode::Char('a') => {
+                            input_state = InputState::new_add();
+                            app_mode = AppMode::Input;
+                        }
+                        KeyCode::Char('e') | KeyCode::Enter => {
+                            if let Some(i) = list_state.selected() {
+                                if !config.repositories.is_empty() {
+                                    input_state = InputState::new_edit(&config.repositories[i], i);
+                                    app_mode = AppMode::Input;
+                                }
+                            }
+                        }
+                        KeyCode::Char('d') => {
+                            if let Some(i) = list_state.selected() {
+                                if !config.repositories.is_empty() {
+                                    // Using existing prompt_confirm_with
+                                    if prompt_confirm_with(
+                                        terminal,
+                                        events,
+                                        "Delete this repository?",
+                                    )? {
+                                        config.repositories.remove(i);
+                                        if config.repositories.is_empty() {
+                                            list_state.select(None);
+                                        } else if i >= config.repositories.len() {
+                                            list_state.select(Some(config.repositories.len() - 1));
+                                        }
+                                    }
+                                    terminal.clear()?;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                AppMode::Input => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            app_mode = AppMode::Browsing;
+                            terminal.clear()?;
+                        }
+                        KeyCode::Tab => {
+                            input_state.active_field = match input_state.active_field {
+                                InputField::Owner => InputField::Name,
+                                InputField::Name => InputField::Alias,
+                                InputField::Alias => InputField::Owner,
+                            };
+                        }
+                        KeyCode::BackTab => {
+                            // Shift+Tab usually
+                            input_state.active_field = match input_state.active_field {
+                                InputField::Owner => InputField::Alias,
+                                InputField::Name => InputField::Owner,
+                                InputField::Alias => InputField::Name,
+                            };
+                        }
+                        KeyCode::Enter => {
+                            if input_state.owner.trim().is_empty() {
+                                input_state.error_msg = "Owner is required".to_string();
+                            } else if input_state.name.trim().is_empty() {
+                                input_state.error_msg = "Name is required".to_string();
+                            } else {
+                                // Save
+                                let new_repo = crate::config::Repository {
+                                    owner: input_state.owner.trim().to_string(),
+                                    name: input_state.name.trim().to_string(),
+                                    alias: if input_state.alias.trim().is_empty() {
+                                        None
+                                    } else {
+                                        Some(input_state.alias.trim().to_string())
+                                    },
+                                };
+
+                                if let Some(idx) = input_state.edit_index {
+                                    config.repositories[idx] = new_repo;
+                                } else {
+                                    config.repositories.push(new_repo);
+                                    // autoselect new item
+                                    list_state.select(Some(config.repositories.len() - 1));
+                                }
+                                app_mode = AppMode::Browsing;
+                                terminal.clear()?;
+                            }
+                        }
+                        KeyCode::Backspace => match input_state.active_field {
+                            InputField::Owner => {
+                                input_state.owner.pop();
+                            }
+                            InputField::Name => {
+                                input_state.name.pop();
+                            }
+                            InputField::Alias => {
+                                input_state.alias.pop();
+                            }
+                        },
+                        KeyCode::Char(c) => {
+                            if InputState::validate_char(c, input_state.active_field) {
+                                match input_state.active_field {
+                                    InputField::Owner => input_state.owner.push(c),
+                                    InputField::Name => input_state.name.push(c),
+                                    InputField::Alias => input_state.alias.push(c),
+                                }
+                                input_state.error_msg.clear();
+                            } else {
+                                input_state.error_msg = "Invalid character".to_string();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}

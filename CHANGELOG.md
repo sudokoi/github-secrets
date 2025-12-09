@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `config` subcommand for interactive configuration management
+- Modal TUI dashboard for adding, editing, and deleting repositories
+- Strict alphanumeric validation for repository owner and name fields
+
+### Changed
+
+- Updated key bindings for configuration dashboard (`e` for edit, `Enter` for edit/save)
+- Refactored configuration management to use state-based UI logic
 ## [0.2.0] - 2025-11-21
 
 ### Added

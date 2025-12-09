@@ -1,7 +1,8 @@
-use github_secrets::paths::{find_config_file, load_env_file};
+use github_secrets::paths::{find_config_file, get_config_creation_path, load_env_file};
 use serial_test::serial;
 use std::env;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 #[test]
@@ -204,5 +205,33 @@ fn test_load_env_file_uses_xdg_config_home() {
         } else {
             env::remove_var("XDG_CONFIG_HOME");
         }
+    }
+}
+
+#[test]
+#[serial]
+fn test_get_config_creation_path_xdg_home_set() {
+    unsafe {
+        env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+    }
+
+    let path = get_config_creation_path();
+    assert_eq!(path, PathBuf::from("/tmp/xdg/github-secrets/config.toml"));
+
+    unsafe {
+        env::remove_var("XDG_CONFIG_HOME");
+    }
+}
+
+#[test]
+#[serial]
+fn test_get_config_creation_path_default() {
+    unsafe {
+        env::remove_var("XDG_CONFIG_HOME");
+    }
+
+    let path = get_config_creation_path();
+    if let Some(home) = dirs::home_dir() {
+        assert_eq!(path, home.join(".config/github-secrets/config.toml"));
     }
 }
