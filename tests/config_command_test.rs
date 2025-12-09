@@ -6,7 +6,6 @@ use github_secrets::app_deps::{
 };
 use github_secrets::config;
 use github_secrets::prompt;
-use std::sync::{Arc, Mutex};
 
 struct MockGitHubApi;
 #[async_trait]
