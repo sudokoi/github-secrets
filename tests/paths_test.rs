@@ -209,6 +209,7 @@ fn test_load_env_file_uses_xdg_config_home() {
 }
 
 #[test]
+#[serial]
 fn test_get_config_creation_path_xdg_home_set() {
     unsafe {
         env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
@@ -223,6 +224,7 @@ fn test_get_config_creation_path_xdg_home_set() {
 }
 
 #[test]
+#[serial]
 fn test_get_config_creation_path_default() {
     unsafe {
         env::remove_var("XDG_CONFIG_HOME");
