@@ -42,25 +42,31 @@ pub trait PromptInterface: Send + Sync {
     fn prompt_secrets(&self) -> Result<Vec<prompt::SecretPair>>;
     fn confirm_secret_update(&self, key: &str, last_updated: Option<&str>) -> Result<bool>;
     fn confirm_retry(&self) -> Result<bool>;
+
+    fn manage_config(&self, initial: config::Config) -> Result<Option<config::Config>>;
 }
 
 pub struct RealPrompt;
 
 impl PromptInterface for RealPrompt {
     fn select_repositories(&self, repositories: &[config::Repository]) -> Result<Vec<usize>> {
-        prompt::select_repositories(repositories)
+        crate::prompt::select_repositories(repositories)
     }
 
     fn prompt_secrets(&self) -> Result<Vec<prompt::SecretPair>> {
-        prompt::prompt_secrets()
+        crate::prompt::prompt_secrets()
     }
 
-    fn confirm_secret_update(&self, key: &str, last_updated: Option<&str>) -> Result<bool> {
-        prompt::confirm_secret_update(key, last_updated)
+    fn confirm_secret_update(&self, name: &str, last_updated: Option<&str>) -> Result<bool> {
+        crate::prompt::confirm_secret_update(name, last_updated)
     }
 
     fn confirm_retry(&self) -> Result<bool> {
-        prompt::confirm_retry()
+        crate::prompt::confirm_retry()
+    }
+
+    fn manage_config(&self, initial: config::Config) -> Result<Option<config::Config>> {
+        crate::prompt::manage_config(initial)
     }
 }
 

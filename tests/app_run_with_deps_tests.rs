@@ -54,6 +54,10 @@ impl PromptInterface for MockPrompt {
     fn confirm_retry(&self) -> Result<bool> {
         Ok(false)
     }
+
+    fn manage_config(&self, _initial: config::Config) -> Result<Option<config::Config>> {
+        Ok(None)
+    }
 }
 
 struct MockRateLimiter;

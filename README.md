@@ -114,6 +114,29 @@ cargo run
 github-secrets
 ```
 
+### Interactive Configuration
+
+You can manage your repositories directly through the interactive configuration dashboard:
+
+```bash
+github-secrets config
+```
+
+**Dashboard Features:**
+- **Recall**: View your list of configured repositories
+- **Add**: Press `a` to add a new repository
+- **Edit**: Press `e` or `Enter` on a selected repository to edit details
+- **Delete**: Press `d` to remove a repository
+- **Navigation**: Use Up/Down arrows to scroll
+- **Validation**: Owner and Name fields strictly accept alphanumeric characters, underscores, and hyphens.
+
+**Key Bindings:**
+- `↑`/`↓`: Navigate list
+- `a`: Add repository
+- `e` / `Enter`: Edit repository
+- `d`: Delete repository
+- `q` / `Esc`: Save and Quit dashboard
+
 ### Workflow
 
 1. **Select repositories**: Choose one or more repositories from the interactive menu, or select "Select All" to update all repositories
